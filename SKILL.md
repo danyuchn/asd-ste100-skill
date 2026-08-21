@@ -12,6 +12,7 @@ This skill borrows that same discipline for a different reader: an **AI agent or
 
 ## When to Use This Skill
 
+- You are about to write a PR description, a commit message, an issue body, a design doc, a plan, a code review comment, or a docstring. The reader cannot ask you what you meant.
 - An agent's output (explanation, instruction, log message, tool description) reads as dense, jargon-heavy, or ambiguous.
 - Text will be consumed by another agent, a translation pipeline, or a non-native English reader, and misparsing has a real cost.
 - You are writing a prompt, system message, or tool description and want to remove ambiguity before a model ever sees it.
