@@ -57,7 +57,7 @@ You get the rewritten text back and nothing else. To see which rules were applie
 
 ## Scope
 
-Built for: agent-to-agent messages, tool/function descriptions, error messages, system prompts, inter-agent instructions, PR descriptions, commit messages, issue bodies, design docs, and docstrings — any English text a reader has to parse without an author to ask.
+Built for: agent-to-agent messages, tool/function descriptions, error messages, system prompts, inter-agent instructions, PR descriptions, commit messages, issue bodies, design docs, plans, and docstrings — any English text a reader has to parse without an author to ask.
 
 Not built for: creative writing, marketing copy, or anything where voice and nuance are the point — STE is deliberately flat and literal by design.
 
