@@ -1,6 +1,6 @@
 ---
 name: asd-ste100
-description: "Use when English text must be parsed without a human to resolve ambiguity — tool descriptions, error messages, inter-agent instructions, system prompts, status reports — and misreading has a real cost, or when text reads as dense, hedged, or easy to misparse. Triggers: disambiguate, STE100 rewrite, apply Simplified Technical English, plain-language rewrite, controlled-language rewrite, rewrite so an agent cannot misread this. Not for creative or marketing copy."
+description: "Use before you write or revise text that a reader must not misread. Two modes cover two audiences. Strict mode is for text a machine parses — tool descriptions, error messages, inter-agent instructions, system prompts, status reports. STE-flavored mode is for prose a person reads — PR descriptions, commit messages, issue bodies, design docs, plans, code review comments, docstrings, code comments, READMEs, changelogs. Also use it when text reads as dense, hedged, or easy to misparse. Triggers: disambiguate, STE100 rewrite, apply Simplified Technical English, plain-language rewrite, controlled-language rewrite, rewrite so an agent cannot misread this. Not for creative or marketing copy."
 version: 0.4.0
 ---
 
