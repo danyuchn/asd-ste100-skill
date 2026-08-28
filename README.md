@@ -1,75 +1,64 @@
-# ASD-STE100 Skill — Simplified Technical English for Agents and Readers
+# ASD-STE100 Skill — Simplified Technical English
 
-A Claude Code skill that rewrites dense, ambiguous English into [ASD-STE100 Simplified Technical English](https://www.asd-ste100.org/) (STE) — the controlled-language standard the aerospace and defense industry built so aircraft maintenance instructions cannot be misread.
+A Claude Code skill for English that a reader must not misread. It applies [ASD-STE100 Simplified Technical English](https://www.asd-ste100.org/) (STE), the controlled-language standard the aerospace and defense industry built so aircraft maintenance instructions cannot be misread. The reader here is anyone who cannot ask you a question. That is an AI agent parsing a tool description, or a colleague reading your design doc months later.
 
-This skill repurposes that same discipline for any reader who cannot ask a question: an **AI agent** parsing a tool description, an error message, or an inter-agent instruction, and a **person** reading a design doc or a PR description after the author moved on.
+STE is an authoring standard, not a cleanup tool. Use this skill to write the first draft. Use it again to revise a draft that exists.
 
-## Why STE, and Why for Agents and Readers
+## Two Paths
 
-STE exists because a misread instruction on an aircraft can kill people, and the intended readers were often not native English speakers with no author to call for clarification. The standard's fix: one meaning per word, active voice, simple tenses, one instruction per sentence, short sentences, no dropped words.
+| | Write | Revise |
+|---|---|---|
+| Input | None. You produce the text. | An existing text. |
+| Trigger | "Write the PR description." "Write this error message." | "Rewrite this." "Disambiguate this." |
+| Process | Apply the rules as you write, then scan your own draft. | Flag each violation, then fix it without changing what the text says. |
+| Hazard | You assert what you never checked. | You lose a fact, or you weaken a hedge the source stated. |
+| Output | The text alone. No diff exists. | The text alone, or a rule table on request. |
 
-An LLM agent parsing another agent's output is in a strikingly similar position — no back-channel, no way to ask "did you mean X or Y?" The same rules that keep a mechanic from misreading a torque spec keep a downstream agent from misreading a tool description or an inter-agent message. They do the same for the person who reads your design doc or your PR description months later, with no author left to ask.
+The rules are the same on both paths. Only the process and the hazard change.
 
-## Before / After
+Each path picks a mode. **Strict** for procedures, error messages, and tool descriptions. **STE-flavored** for READMEs, PR descriptions, and explanatory prose, which keeps the sentence discipline but not the fixed-vocabulary lockdown.
 
-| Before | After |
-|---|---|
-| "This tool will attempt to synchronize state across the various backends that have been configured, and if a conflict is detected it may resolve it automatically depending on the strategy that has been set, or otherwise it will surface the conflict for manual review." | "The tool synchronizes state across the configured backends. If it finds a conflict, it checks the current strategy. If the strategy allows automatic resolution, the tool resolves the conflict. If not, the tool reports the conflict for manual review." |
-| "An error may have occurred while processing your request due to a possible mismatch in the expected data format, which could be caused by an outdated client version." | "The request failed. The data format did not match what the server expected. Check your client version — an outdated client is the most common cause." |
+Worked examples: [`examples/before-after.md`](examples/before-after.md). Full rule summary and sources: [`references/writing-rules.md`](references/writing-rules.md).
 
-More examples, including illustrations of the official STE rules themselves, in [`examples/before-after.md`](examples/before-after.md).
-
-## What This Skill Does
-
-1. Picks a mode — **Strict** for procedures, error messages, and tool descriptions; **STE-flavored** for READMEs, PR descriptions, and explanatory prose, which keeps the sentence discipline but not the fixed-vocabulary lockdown.
-2. Reads the input English text for meaning.
-3. Flags every rule violation sentence-by-sentence: ambiguous word choice, present-perfect/complex tense, passive voice with an unclear actor, multi-instruction sentences, oversized noun clusters, dropped words, sentences over length, phrasal verbs, nominalized actions, semicolons, hedge stacks, and marketing adjectives.
-4. Rewrites each flagged sentence — without dropping any fact, condition, or scope qualifier from the original. If a shorter phrasing would lose required precision, it keeps the longer phrasing and flags the trade-off instead of silently simplifying.
-5. Outputs the rewritten text on its own — no preamble, no mode announcement, no change summary — plus a one-line `Kept as-is:` note when it deliberately left something unsimplified.
-
-Ask for the reasoning ("show the diff", "which rules did it break") and it outputs a before/after table naming each rule instead.
-
-The structural rules it checks are mechanical — you can point at the word or punctuation mark that breaks each one. The rules that depend on ASD's dictionary are flagged as advisory rather than enforced, and the rules that need taste are left to you.
-
-It does **not** reproduce ASD's official ~900-word approved dictionary. The standard is free to obtain but not free to redistribute: Issue 9 permits reproduction only with ASD's written authority, or by eight listed categories of organisation that this project does not belong to. This skill applies the underlying *principle* (plainest available word, used the same way every time) rather than checking against a fixed word list. For certified STE-compliant documentation, use the real standard.
-
-Full rule summary and citations: [`references/writing-rules.md`](references/writing-rules.md).
-
-## Installation
+## Install
 
 ```bash
-git clone https://github.com/danyuchn/asd-ste100-skill ~/.claude/skills/asd-ste100
+git clone https://github.com/ahmed-irfan/asd-ste100-skill ~/.claude/skills/asd-ste100
 ```
 
 ## Usage
 
-Trigger with a request to simplify or clarify English text:
+Name the artifact to write it:
+
+```
+Write the PR description for this branch
+Write the error message for a failed schema load
+```
+
+Name the fix to revise it:
 
 ```
 Disambiguate this tool description
-Rewrite this error message so an agent can't misparse it
 Apply ASD-STE100 to this instruction
 ```
 
-Or paste text and ask Claude to "disambiguate this" / "apply STE100 to this" / "reduce ambiguity in this output."
+You get the text back and nothing else. On the revise path, add "show the diff" to see which rules applied.
 
-You get the rewritten text back and nothing else. To see which rules were applied, add "show the diff" or "explain the changes" to the request.
+To make the write path automatic, add this to your `CLAUDE.md`:
 
-## Scope
+```markdown
+Invoke the asd-ste100 skill before you write a PR description, a commit
+message, an issue body, a design doc, a plan, a code review comment, or a
+docstring. Do not wait to be asked.
+```
 
-Built for: agent-to-agent messages, tool/function descriptions, error messages, system prompts, inter-agent instructions, PR descriptions, commit messages, issue bodies, design docs, plans, and docstrings — any English text a reader has to parse without an author to ask.
+## Limits
 
-Not built for: creative writing, marketing copy, or anything where voice and nuance are the point — STE is deliberately flat and literal by design.
+This skill does not reproduce ASD's official ~900-word approved dictionary. The standard is free to obtain but not free to redistribute. It applies the underlying principle instead: pick the plainest available word, and use it the same way every time. For certified STE documentation, use the real standard.
 
-One limit worth stating up front: this fixes the form of a text, not its substance. A paragraph with nothing to say comes out short, clean, and still empty.
+STE fixes the form of a text, not its substance. A paragraph with nothing to say comes out short, clean, and still empty. On the write path that limit bites harder, because a clean sentence reads as a checked one.
 
-## Sources
-
-- [ASD-STE100 official site](https://www.asd-ste100.org/)
-- [ASD-STE100 — About STE](https://www.asd-ste100.org/about_STE.html)
-- [ASD Europe — Simplified Technical English](https://www.asd-europe.org/standards-specifications/simplified-technical-english/)
-- [Simplified Technical English — Wikipedia](https://en.wikipedia.org/wiki/Simplified_Technical_English)
-- [TechScribe — ASD-STE100 Simplified Technical English](https://www.techscribe.co.uk/techw/asd-simplified-technical-english.htm)
+Not for creative or marketing copy. STE is flat and literal by design.
 
 ## License
 

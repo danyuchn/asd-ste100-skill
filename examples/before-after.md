@@ -1,5 +1,7 @@
 # Before / After Examples
 
+Every example here shows the revise path, because a before/after pair needs a "before". The write path targets the same right-hand column directly. Read each **After** as the shape to write from the start, not only as the repair.
+
 ## Part 1 — Official STE Examples
 
 These illustrate real ASD-STE100 rules, drawn from public secondary sources (see `references/writing-rules.md`). They are paraphrased illustrations of the rule, not quotes from the standard itself.
@@ -40,7 +42,7 @@ The last sentence branches on whether the conflict was resolved, not on what the
 > An error may have occurred while processing your request due to a possible mismatch in the expected data format, which could be caused by an outdated client version.
 
 **Violations flagged:**
-- One sentence carrying three separate claims (an error occurred; a format mismatch; a client version).
+- One sentence carrying three separate claims: an error, a format mismatch, and a client version.
 - 28 words, over the descriptive cap.
 
 Not flagged: "may have occurred" and "could be caused by". The message is written by a system that does not know what went wrong. Both hedges are accurate reporting of that ignorance.
@@ -88,3 +90,5 @@ Flavored mode kept the explanatory rhythm and did not force one fixed term per c
 ## How to Read These Examples
 
 Part 1 shows the actual rules this skill is built on. Part 2 shows the transfer: the same discipline — one meaning per word, active voice, simple tense, one instruction per sentence, explicit conditions instead of buried subordinate clauses — makes machine-to-machine and cross-language text safer to parse, not just aircraft manuals.
+
+The rules do not care whether a draft exists. On the revise path they name what to fix. On the write path they name what to produce.

@@ -1,6 +1,6 @@
 # ASD-STE100 Writing Rules — Summary and Sources
 
-This file summarizes the public, official description of ASD-STE100 (Simplified Technical English). It paraphrases rule *categories*; it does not reproduce the standard's text or its ~900-word dictionary verbatim. For the authoritative document, request the free download at the official site.
+This file summarizes the public, official description of ASD-STE100 (Simplified Technical English). It paraphrases rule *categories*. It does not reproduce the standard's text or its ~900-word dictionary verbatim. For the authoritative document, request the free download at the official site.
 
 ## What ASD-STE100 Is
 
@@ -11,6 +11,12 @@ ASD-STE100 is a controlled natural language, first released in 1986 (as AECMA Do
 - **53 writing rules across 9 sections** covering word choice, grammar, sentence structure, and style.
 - **A dictionary** of roughly 900 approved words, each restricted to one meaning and one part of speech, plus roughly 1,200 words to avoid with suggested replacements.
 - **A terminology allowance**: organizations may define their own dictionary of approved technical nouns and verbs beyond the base ~900 words, for domain-specific vocabulary the base dictionary can't cover.
+
+## Redistribution
+
+ASD-STE100 is free to obtain but not free to redistribute. Issue 9, page 2 states that "no reproduction or publication of it, in whole or in part, shall be made without the written authority of an officer of ASD." It grants free reproduction rights only to eight listed categories: ASD/AIA/AIAC member associations and their member companies and customers, member-state defence ministries, A4A, airworthiness authorities, and universities and research institutes for educational purposes. This project is in none of them, so the ~900-word dictionary stays out of this repo.
+
+Request the standard from the [official downloads page](https://www.asd-ste100.org/STE_downloads.html). That page is a request form that emails you a link, not a direct download.
 
 ## Rule Categories (Paraphrased)
 
@@ -23,7 +29,7 @@ ASD-STE100 is a controlled natural language, first released in 1986 (as AECMA Do
 
 **Verb forms**
 - Permitted forms: infinitive, imperative, simple present, simple past, simple future, and past participle used only as an adjective.
-- No present perfect, past perfect, or other compound/auxiliary constructions ("we have received" is not allowed; "we received" is).
+- No present perfect, past perfect, or other compound/auxiliary constructions. "We have received" is not allowed. "We received" is allowed.
 - "-ing" forms are permitted only as a technical noun or as part of a technical noun, not as a verb form.
 
 **Voice**
@@ -32,7 +38,7 @@ ASD-STE100 is a controlled natural language, first released in 1986 (as AECMA Do
 
 **Sentence structure**
 - One instruction per sentence.
-- Maximum ~20 words per sentence for procedures/instructions; maximum ~25 words for descriptive text.
+- Maximum ~20 words per sentence for procedures and instructions. Maximum ~25 words per sentence for descriptive text.
 - Do not omit sentence parts (verb, subject, article) just to shorten the sentence — the standard explicitly warns that this creates ambiguity rather than clarity.
 - Noun clusters (strings of nouns stacked as a modifier) are capped at 3 words.
 - Semicolons are not permitted at all (Rule 8.1): "You can use all standard English punctuation marks but not the semicolon (;)." Write separate sentences instead. Every other standard mark, including the em dash, remains permitted.
@@ -45,9 +51,11 @@ ASD-STE100 is a controlled natural language, first released in 1986 (as AECMA Do
 **Safety instructions**
 - Safety-critical instructions must open with a clear command or condition, not be buried mid-sentence.
 
-## Why This Skill Repurposes STE for Agent Output
+## Why This Skill Repurposes STE
 
-STE was designed to eliminate ambiguity for a reader who cannot ask a follow-up question — a technician on a tarmac, working from a manual, with no author to call. An AI agent parsing another agent's output, a tool description, or a system message is in the same position: no back-channel to resolve "does this passive-voice sentence mean the caller does X, or the callee does X?" The same rule set that protects an airline mechanic from a misread torque spec protects a downstream agent from a misread instruction.
+STE was designed to eliminate ambiguity for a reader who cannot ask a follow-up question — a technician on a tarmac, working from a manual, with no author to call. An AI agent parsing another agent's output, a tool description, or a system message is in the same position: no back-channel to resolve "does this passive-voice sentence mean the caller does X, or the callee does X?" The same rule set that protects an airline mechanic from a misread torque spec protects a downstream agent from a misread instruction. It protects a colleague who reads a design doc or a PR description months later, with no author left to ask.
+
+Note the order STE assumes. It is an authoring standard: the writer applies the rules to the first draft. This skill keeps that order, and applies the same rules again to a draft that already exists.
 
 ## Sources
 
