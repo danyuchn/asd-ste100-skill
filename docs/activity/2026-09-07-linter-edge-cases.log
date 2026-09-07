@@ -1,0 +1,11 @@
+# Activity log — linter edge cases implementation
+
+[2026-09-07T11:55:41-05:00][Task 0][SETUP] Approved implementation plan: docs/superpowers/plans/2026-09-07-linter-edge-cases.md.
+[2026-09-07T11:55:41-05:00][Task 0][SETUP] Worktree: F:/Repositories/Projects/Metis/asd-ste100-skill-worktree; branch: fix/linter-dangling-conjunctions.
+[2026-09-07T11:55:41-05:00][Task 0][AUTHORIZATION] User authorized implementation, GPT-5.5 sub-agents, full TDD, and before/after evidence recording.
+[2026-09-07T11:55:41-05:00][Task 0][POLICY] This file is append-only. Each later entry will include an ISO-8601 datetime and task number.
+[2026-09-07T11:56:22-05:00][Task 0][PREFLIGHT] Baseline command: python scripts/ste-lint.py --selftest; output: selftest OK; exit: 0.
+[2026-09-07T11:56:22-05:00][Task 0][PREFLIGHT] Baseline reproduction input: two list items ending with and/or. Command: python scripts/ste-lint.py --json via stdin; output: violations=[], count=0, hard_count=0, baseline=0, words=10, per_100_words=0.0; exit: 0.
+[2026-09-07T11:56:22-05:00][Task 0][PREFLIGHT] Baseline branch: fix/linter-dangling-conjunctions; clean except this new activity log; recent implementation base: 6f7bb36.
+[2026-09-07T11:56:22-05:00][Task 0][PREFLIGHT] Fork/upstream refs: master, origin/master, upstream/master all equal 6f7bb361ae9b97a9fcb5f5c57cbac40eacf2d438.
+[2026-09-07T11:56:22-05:00][Task 0][RULING] Use native Git Bash for SDD helper scripts because WSL Git cannot resolve this Windows linked-worktree gitdir; cost if wrong: SDD artifacts could be created outside the intended worktree.
