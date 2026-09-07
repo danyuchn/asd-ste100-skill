@@ -64,10 +64,87 @@ MAX_WORDS = 25  # descriptions cap; instructions cap is 20 but undetectable with
 
 CODE_FENCE = re.compile(r"^(```|~~~)")
 INLINE_CODE = re.compile(r"`[^`]*`")
+LIST_ITEM_START = re.compile(
+    r"^(?P<indent> {0,3})(?P<marker>[-*+]|[0-9]+[.)])(?P<gap> +)(?P<body>.*)$"
+)
+CONJUNCTION_END = re.compile(r"\b(?:and|or)\s*$", re.I)
 
 
 def _word_re(base):
     return re.compile(r"\b" + base + r"(?:s|es|ed|d|ing)?\b", re.I)
+
+
+def _leading_spaces(line):
+    return len(line) - len(line.lstrip(" "))
+
+
+def _is_list_continuation(line, content_indent):
+    if not line.strip():
+        return True
+    if LIST_ITEM_START.match(line):
+        return False
+    return _leading_spaces(line) >= content_indent
+
+
+def _dangling_conjunction_findings(text, filename):
+    lines = text.splitlines()
+    findings = []
+    in_fence = False
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        stripped = line.strip()
+        if CODE_FENCE.match(stripped):
+            in_fence = not in_fence
+            index += 1
+            continue
+        if in_fence:
+            index += 1
+            continue
+        start = LIST_ITEM_START.match(line)
+        if not start:
+            index += 1
+            continue
+
+        content_indent = (len(start.group("indent"))
+                          + len(start.group("marker"))
+                          + len(start.group("gap")))
+        item_lines = [(index, start.group("body"))]
+        next_index = index + 1
+        item_fence = False
+        while next_index < len(lines):
+            candidate = lines[next_index]
+            candidate_stripped = candidate.strip()
+            if CODE_FENCE.match(candidate_stripped):
+                # Fence delimiters are state markers, not meaningful item lines.
+                item_fence = not item_fence
+                next_index += 1
+                continue
+            if item_fence:
+                next_index += 1
+                continue
+            if not _is_list_continuation(candidate, content_indent):
+                break
+            item_lines.append((next_index, candidate))
+            next_index += 1
+
+        meaningful = []
+        for line_index, item_line in item_lines:
+            cleaned = INLINE_CODE.sub("", item_line).strip()
+            if cleaned:
+                meaningful.append((line_index, cleaned))
+        if meaningful and CONJUNCTION_END.search(meaningful[-1][1]):
+            findings.append({
+                "file": filename,
+                "line": index + 1,
+                "col": start.start("marker") + 1,
+                "rule": "dangling-conjunction",
+                "level": "advisory-free",
+                "match": meaningful[-1][1],
+                "message": "List item ends with a coordinating conjunction. Complete the item or join it with the next item.",
+            })
+        index = next_index
+    return findings
 
 
 def lint(text, filename="<stdin>"):
@@ -114,6 +191,7 @@ def lint(text, filename="<stdin>"):
                                  "rule": "synonym-rotation", "level": "advisory-free",
                                  "match": match,
                                  "message": f"'{base}' and '{first_base}' name the same action. Pick one and use it every time."})
+    findings.extend(_dangling_conjunction_findings(text, filename))
     findings.sort(key=lambda f: (f["line"], f["col"]))
     return findings, words_total
 
@@ -148,6 +226,67 @@ def selftest():
     # code blocks skipped
     findings, _ = lint("```\nx = a; y = b\n```")
     assert findings == []
+    # all supported list markers, case variants, and trailing whitespace
+    findings, _ = lint(
+        "- Confirm the target and\n"
+        "* Record the result OR  \n"
+        "+ Close the panel\n"
+        "1. Start the task and\n"
+        "2) Stop the task OR"
+    )
+    dangling = [f for f in findings if f["rule"] == "dangling-conjunction"]
+    assert len(dangling) == 4, dangling
+    assert [f["line"] for f in dangling] == [1, 2, 4, 5], dangling
+    assert [f["col"] for f in dangling] == [1, 1, 1, 1], dangling
+    assert all(f["level"] == "advisory-free" for f in dangling), dangling
+
+    # valid continuation lines and standalone four-space code are ignored
+    findings, _ = lint("  - Confirm the target and\n    record the result.")
+    assert not any(f["rule"] == "dangling-conjunction" for f in findings)
+    findings, _ = lint("- Confirm the target\n  and")
+    dangling = [f for f in findings if f["rule"] == "dangling-conjunction"]
+    assert len(dangling) == 1 and dangling[0]["line"] == 1, dangling
+    findings, _ = lint("    - code and")
+    assert not any(f["rule"] == "dangling-conjunction" for f in findings)
+    findings, _ = lint("> - Confirm the target and\n> - Record the result or")
+    assert not any(f["rule"] == "dangling-conjunction" for f in findings)
+    findings, _ = lint("- Do this and\n~~~\ncode and\n~~~")
+    dangling = [f for f in findings if f["rule"] == "dangling-conjunction"]
+    assert len(dangling) == 1 and dangling[0]["line"] == 1, dangling
+    findings, _ = lint("```text\n- code and\n```")
+    assert not any(f["rule"] == "dangling-conjunction" for f in findings)
+
+    # one- and three-space markers and ordered continuation width
+    findings, _ = lint(" - Start the task and\n   record the result.")
+    assert not any(f["rule"] == "dangling-conjunction" for f in findings)
+    findings, _ = lint("-  Start the task and\n   record the result.")
+    assert not any(f["rule"] == "dangling-conjunction" for f in findings)
+    findings, _ = lint("-\tStart the task and")
+    assert not any(f["rule"] == "dangling-conjunction" for f in findings)
+    findings, _ = lint("   - Start the task and", filename="fixture.md")
+    dangling = [f for f in findings if f["rule"] == "dangling-conjunction"]
+    assert len(dangling) == 1 and dangling[0]["col"] == 4, dangling
+    assert dangling[0]["file"] == "fixture.md"
+    assert dangling[0]["match"].endswith("and")
+    assert "Complete the item" in dangling[0]["message"]
+    findings, _ = lint("100. Start the task and\n  unrelated text")
+    dangling = [f for f in findings if f["rule"] == "dangling-conjunction"]
+    assert len(dangling) == 1, dangling
+    findings, _ = lint("- Start the task and.\n- Stop the task or,")
+    assert not any(f["rule"] == "dangling-conjunction" for f in findings)
+    findings, _ = lint("- Start the task and\n\n  record the result.")
+    assert not any(f["rule"] == "dangling-conjunction" for f in findings)
+    findings, _ = lint("- Parent item and\n  - Nested item or")
+    dangling = [f for f in findings if f["rule"] == "dangling-conjunction"]
+    assert [f["line"] for f in dangling] == [1, 2], dangling
+
+    # ordinary prose, inline code, and fenced code are ignored
+    findings, _ = lint("The process may include steps and")
+    assert not any(f["rule"] == "dangling-conjunction" for f in findings)
+    findings, _ = lint("- Use `and` as a label")
+    assert not any(f["rule"] == "dangling-conjunction" for f in findings)
+    findings, _ = lint("~~~\n- code and\n~~~")
+    assert not any(f["rule"] == "dangling-conjunction" for f in findings)
     findings, _ = lint(("word " * 30).strip() + ".")
     assert any(f["rule"] == "long-sentence" for f in findings)
     # synonym rotation: second member flagged, first named as the keeper
