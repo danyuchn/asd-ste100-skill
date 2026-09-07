@@ -70,7 +70,7 @@ Run:
     git -C F:/Repositories/Projects/Metis/asd-ste100-skill rev-parse master origin/master upstream/master
     git -C F:/Repositories/Projects/Metis/asd-ste100-skill-worktree merge-base --is-ancestor upstream/master HEAD
 
-Expected: The commands create or refresh origin/master and upstream/master, print the three hashes, and return exit code 0 for the ancestor check. If the branch is not based on the refreshed upstream/master, reconcile the feature branch with a normal merge or rebase after inspection. Do not alter or push the default master branch as part of this feature.
+Expected: The commands create or refresh origin/master and upstream/master, print the three hashes, and return exit code 0 for the ancestor check. If the branch is not based on the refreshed upstream/master, first confirm that the worktree is clean, then reconcile the feature branch with a normal merge or rebase after inspection. Stop and resolve any conflict or unexpected dirty state before continuing. Do not alter or push the default master branch as part of this feature.
 
 ## Task 2: Add failing regression cases
 
@@ -97,6 +97,8 @@ Add this block to selftest():
     )
     dangling = [f for f in findings if f["rule"] == "dangling-conjunction"]
     assert len(dangling) == 4, dangling
+    assert [f["line"] for f in dangling] == [1, 2, 4, 5], dangling
+    assert [f["col"] for f in dangling] == [1, 1, 1, 1], dangling
     assert all(f["level"] == "advisory-free" for f in dangling), dangling
 
     # valid continuation lines and standalone four-space code are ignored
@@ -175,7 +177,7 @@ Do not commit the failing test. Commit the test and implementation together afte
 Add these constants near CODE_FENCE and INLINE_CODE:
 
     LIST_ITEM_START = re.compile(
-        r"^(?P<indent> {0,3})(?P<marker>[-*+]|\d+[.)])(?P<gap> +)(?P<body>.*)$"
+        r"^(?P<indent> {0,3})(?P<marker>[-*+]|[0-9]+[.)])(?P<gap> +)(?P<body>.*)$"
     )
     CONJUNCTION_END = re.compile(r"\b(?:and|or)\s*$", re.I)
 
@@ -312,7 +314,7 @@ Run:
 
     python scripts/ste-lint.py examples/linter-edge-cases.md
 
-Expected: The linter reports exactly two dangling-conjunction findings on the two list items. It reports no finding for the fenced-code line. The command exits with code 1 because the default hard-violation baseline is 0.
+Expected: The linter reports exactly two findings, both with rule `dangling-conjunction`, on lines 7 and 8 at column 1. The `match` values end with `and` and `or`. It reports no finding for the fenced-code line. The command exits with code 1 because the default hard-violation baseline is 0.
 
 - [ ] **Step 3: Verify the documented baseline behavior**
 
@@ -347,7 +349,11 @@ Add this paragraph after the existing sentence beginning "The structural rules i
 
     The linter checks structural patterns only. It does not compare an original text with a rewrite, verify that requirement strength stayed the same, or prove that the rewrite preserved meaning. A zero-violation result means that the configured structural checks found no problems.
 
-Add this paragraph after the structural-lint limitation text:
+Add this dedicated linter inventory immediately after that limitation paragraph:
+
+    The deterministic linter checks semicolons, phrasal verbs, nominalizations, marketing adjectives, passive voice, present-perfect forms, long sentences, synonym rotation, and dangling conjunctions in supported list items. It never flags hedges or modality.
+
+Add this paragraph after the dedicated linter inventory:
 
     The dangling-conjunction rule checks list markers at the start of a line with zero to three leading spaces and ASCII spaces after the marker. It checks indented continuation lines up to the final meaningful line. It does not parse list syntax inside blockquotes, lazy continuation, or full nested-list semantics. A standalone line with four or more leading spaces is not treated as a list marker. Within an active list item, indentation at the computed content column is treated as continuation text. Fence detection follows the linter's existing simple rule: a stripped line beginning with three backticks or three tildes toggles the fence state.
 
@@ -361,15 +367,13 @@ Add this paragraph after the Markdown-scope paragraph:
 
     The intentionally invalid examples/linter-edge-cases.md file demonstrates incomplete Markdown list items. Run python scripts/ste-lint.py examples/linter-edge-cases.md to confirm that the linter reports the two expected findings. The file is a test fixture and should not be used as compliant STE prose.
 
-Add `dangling-conjunction` to README.md item 3, which lists the rules that the linter flags.
-
 - [ ] **Step 4: Review the documentation for accuracy**
 
 Run:
 
-    rg -n "linter checks structural|linter-edge-cases|preserved meaning|dangling-conjunction|blockquote|nested-list" README.md SKILL.md
+    rg -n "linter checks structural|deterministic linter checks|linter-edge-cases|preserved meaning|dangling-conjunction|blockquote|nested-list" README.md SKILL.md
 
-Expected: README.md contains the structural and Markdown-scope limitations, the example path, the command, and the new rule in its linter list. SKILL.md lists dangling-conjunction with the other linter checks. Neither file claims that the linter verifies semantic preservation.
+Expected: README.md contains the structural and Markdown-scope limitations, the dedicated truthful linter inventory, the example path, and the command. SKILL.md lists dangling-conjunction with the other linter checks. Neither file claims that the linter verifies semantic preservation.
 
 - [ ] **Step 5: Commit the documentation**
 
@@ -403,7 +407,7 @@ Run:
 
     python scripts/ste-lint.py --json examples/linter-edge-cases.md
 
-Expected: Valid JSON with exactly two findings, both named dangling-conjunction, both marked advisory-free, hard_count equal to 2, and exit code 1.
+Expected: Valid JSON with exactly two findings on lines 7 and 8 at column 1, both named dangling-conjunction, both marked advisory-free, hard_count equal to 2, and exit code 1.
 
 - [ ] **Step 3: Run the fixture with its allowed baseline**
 
@@ -425,11 +429,12 @@ Expected: `syntax OK` and exit code 0. No `__pycache__` directory is created.
 
 Run:
 
+    git fetch --prune upstream master
     git diff --check upstream/master...HEAD
     git status --short --branch
     git log --oneline -5
 
-Expected: git diff --check produces no output for the committed branch diff. The branch contains the two committed plan revisions plus the three focused implementation commits and no unrelated files. The working tree is clean.
+Expected: git diff --check produces no output for the committed branch diff against the freshly fetched upstream ref. The branch contains its committed plan revisions plus the three focused implementation commits and no unrelated files. The working tree is clean.
 
 - [ ] **Step 6: Prepare the upstream review information**
 
