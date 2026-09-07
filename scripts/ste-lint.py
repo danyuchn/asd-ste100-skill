@@ -130,7 +130,8 @@ def _dangling_conjunction_findings(text, filename):
 
         meaningful = []
         for line_index, item_line in item_lines:
-            cleaned = INLINE_CODE.sub("", item_line).strip()
+            # Preserve code spans as neutral operands while ignoring their contents.
+            cleaned = INLINE_CODE.sub(" CODE ", item_line).strip()
             if cleaned:
                 meaningful.append((line_index, cleaned))
         if meaningful and CONJUNCTION_END.search(meaningful[-1][1]):
@@ -285,6 +286,8 @@ def selftest():
     assert not any(f["rule"] == "dangling-conjunction" for f in findings)
     findings, _ = lint("- Use `and` as a label")
     assert not any(f["rule"] == "dangling-conjunction" for f in findings)
+    findings, _ = lint("- Combine `left` and `right`")
+    assert not any(f["rule"] == "dangling-conjunction" for f in findings), findings
     findings, _ = lint("~~~\n- code and\n~~~")
     assert not any(f["rule"] == "dangling-conjunction" for f in findings)
     findings, _ = lint(("word " * 30).strip() + ".")
