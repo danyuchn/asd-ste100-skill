@@ -30,7 +30,8 @@
 
 - scripts/ste-lint.py — Add the dangling-conjunction rule and regression cases in selftest().
 - examples/linter-edge-cases.md — Add a synthetic document with intentional violations and no project-specific information.
-- README.md — Document the new rule, its example command, and the linter's semantic limits.
+- README.md — Document the new rule, its example command, and the linter's semantic and Markdown-scope limits.
+- SKILL.md — Keep the skill's linter rule inventory consistent with the implementation.
 
 ## Task 1: Confirm the contribution workspace
 
@@ -67,8 +68,9 @@ Run:
     git -C F:/Repositories/Projects/Metis/asd-ste100-skill fetch --prune origin
     git -C F:/Repositories/Projects/Metis/asd-ste100-skill fetch --prune upstream master
     git -C F:/Repositories/Projects/Metis/asd-ste100-skill rev-parse master origin/master upstream/master
+    git -C F:/Repositories/Projects/Metis/asd-ste100-skill-worktree merge-base --is-ancestor upstream/master HEAD
 
-Expected: The command creates or refreshes origin/master and upstream/master. Confirm the three hashes before continuing. If master is behind upstream/master, fast-forward master and push that fast-forward to origin. Do not force-push.
+Expected: The commands create or refresh origin/master and upstream/master, print the three hashes, and return exit code 0 for the ancestor check. If the branch is not based on the refreshed upstream/master, reconcile the feature branch with a normal merge or rebase after inspection. Do not alter or push the default master branch as part of this feature.
 
 ## Task 2: Add failing regression cases
 
@@ -107,6 +109,19 @@ Add this block to selftest():
     assert not any(f["rule"] == "dangling-conjunction" for f in findings)
     findings, _ = lint("> - Confirm the target and\n> - Record the result or")
     assert not any(f["rule"] == "dangling-conjunction" for f in findings)
+    findings, _ = lint("- Do this and\n~~~\ncode and\n~~~")
+    dangling = [f for f in findings if f["rule"] == "dangling-conjunction"]
+    assert len(dangling) == 1 and dangling[0]["line"] == 1, dangling
+
+    # one- and three-space top-level markers and ordered continuation width
+    findings, _ = lint(" - Start the task and\n   record the result.")
+    assert not any(f["rule"] == "dangling-conjunction" for f in findings)
+    findings, _ = lint("   - Start the task and")
+    dangling = [f for f in findings if f["rule"] == "dangling-conjunction"]
+    assert len(dangling) == 1 and dangling[0]["col"] == 4, dangling
+    findings, _ = lint("100. Start the task and\n  unrelated text")
+    dangling = [f for f in findings if f["rule"] == "dangling-conjunction"]
+    assert len(dangling) == 1, dangling
 
     # ordinary prose, inline code, and fenced code are ignored
     findings, _ = lint("The process may include steps and")
@@ -154,13 +169,15 @@ Add these helpers near lint():
         return len(line) - len(line.lstrip(" "))
 
 
-    def _is_list_continuation(line, item_indent):
+    def _is_list_continuation(line, item_indent, content_indent):
         if not line.strip():
             return True
         match = LIST_ITEM_START.match(line)
         if match and len(match.group("indent")) <= item_indent:
             return False
-        return _leading_spaces(line) >= item_indent + 2
+        if match:
+            return len(match.group("indent")) >= content_indent
+        return _leading_spaces(line) >= content_indent
 
 
     def _dangling_conjunction_findings(text, filename):
@@ -184,6 +201,7 @@ Add these helpers near lint():
                 continue
 
             item_indent = len(start.group("indent"))
+            content_indent = item_indent + len(start.group("marker")) + 1
             item_lines = [(index, start.group("body"))]
             next_index = index + 1
             item_fence = False
@@ -197,7 +215,7 @@ Add these helpers near lint():
                 if item_fence:
                     next_index += 1
                     continue
-                if not _is_list_continuation(candidate, item_indent):
+                if not _is_list_continuation(candidate, item_indent, content_indent):
                     break
                 item_lines.append((next_index, candidate))
                 next_index += 1
@@ -211,7 +229,7 @@ Add these helpers near lint():
                 findings.append({
                     "file": filename,
                     "line": index + 1,
-                    "col": start.start() + 1,
+                    "col": start.start("marker") + 1,
                     "rule": "dangling-conjunction",
                     "level": "advisory-free",
                     "match": meaningful[-1][1],
@@ -220,7 +238,7 @@ Add these helpers near lint():
             index = next_index
         return findings
 
-The helper must group all contiguous indented continuation lines before checking the final meaningful line. A same-level or less-indented supported list marker ends the current item; a more-indented marker is treated as item content. Blank lines remain part of the scan but do not become the final meaningful line. Fenced-code lines are skipped while the fence state is tracked. The helper must not flag ordinary prose, inline-code content, four-space indented code, or fenced-code content. It intentionally does not parse blockquote list syntax in this change.
+The helper must group all contiguous indented continuation lines before checking the final meaningful line. `content_indent` is the item indentation plus the marker width plus one space, so ordered markers with more than one digit do not use the unordered-list threshold. A same-level or less-indented supported list marker ends the current item. A more-indented marker is item content only when it begins at or beyond `content_indent`; otherwise it ends the current item and can be evaluated as its own supported marker. Blank lines remain part of the scan but do not become the final meaningful line. Fenced-code delimiters and fenced-code lines are skipped and never become meaningful item lines. The helper must not flag ordinary prose, inline-code content, four-space indented code, or fenced-code content. It intentionally does not parse blockquote list syntax, lazy continuation, or full nested-list semantics in this change.
 
 - [ ] **Step 2: Wire the helper into lint()**
 
@@ -232,7 +250,7 @@ Run:
 
     python scripts/ste-lint.py --selftest
 
-Expected: selftest OK and exit code 0. The assertions cover supported list markers, case, trailing whitespace, valid continuations, indented code, inline code, and fenced code. The blockquote assertion confirms that unsupported blockquote lists produce no new finding.
+Expected: selftest OK and exit code 0. The assertions cover all supported marker forms, zero-to-three leading spaces, case, trailing whitespace, final-line continuation behavior, ordered-marker width, adjacent and fenced code, indented code, inline code, and unsupported blockquote syntax.
 
 - [ ] **Step 4: Commit the test and implementation together**
 
@@ -260,11 +278,11 @@ Create examples/linter-edge-cases.md with this exact content:
 
     # Linter Edge Cases
 
-    This file contains intentional structural violations. Use it to verify the linter.
+    This file has intentional structural violations. Use it to test the linter.
 
     ## Incomplete list items
 
-    - Confirm the target and
+    - Set the target and
     - Record the result or
 
     ## Fenced code
@@ -301,37 +319,46 @@ Run:
 **Files:**
 
 - Modify: README.md, near the existing structural-rule explanation.
+- Modify: SKILL.md, in the Process and Additional Resources linter descriptions.
 
 **Interfaces:**
 
 - Consumes: The linter's actual rule set and the new example path.
 - Produces: User-facing instructions that explain how to run the example and what the linter cannot verify.
 
-- [ ] **Step 1: Add the linter limitation text**
+- [ ] **Step 1: Add the linter limitation text to README.md**
 
 Add this paragraph after the existing statement that structural rules are mechanical:
 
-    The linter checks structural patterns only. It does not compare an original text with a rewrite, verify that requirement strength stayed the same, or prove that the rewrite preserved meaning. A zero-violation result means that the configured structural checks found no problems. The dangling-conjunction rule examines supported list items with up to three leading spaces; it does not parse list syntax inside blockquotes.
-
-- [ ] **Step 2: Add the edge-case example command**
+    The linter checks structural patterns only. It does not compare an original text with a rewrite, verify that requirement strength stayed the same, or prove that the rewrite preserved meaning. A zero-violation result means that the configured structural checks found no problems.
 
 Add this paragraph after the limitation text:
 
+    The dangling-conjunction rule checks list markers at the start of a line with zero to three leading spaces. It checks indented continuation lines up to the final meaningful line. It does not parse list syntax inside blockquotes, lazy continuation, or full nested-list semantics.
+
+- [ ] **Step 2: Keep the skill rule inventory current**
+
+Update the linter rule list in `SKILL.md` to include dangling-conjunction wherever the existing linter checks are enumerated, including the Process step and Additional Resources entry. Do not claim that the rule checks semantic preservation.
+
+- [ ] **Step 3: Add the edge-case example command**
+
+Add this paragraph after the Markdown-scope paragraph:
+
     The intentionally invalid examples/linter-edge-cases.md file demonstrates incomplete Markdown list items. Run python scripts/ste-lint.py examples/linter-edge-cases.md to confirm that the linter reports the two expected findings. The file is a test fixture and should not be used as compliant STE prose.
 
-- [ ] **Step 3: Review the documentation for accuracy**
+- [ ] **Step 4: Review the documentation for accuracy**
 
 Run:
 
-    rg -n "linter checks structural|linter-edge-cases|preserved meaning" README.md
+    rg -n "linter checks structural|linter-edge-cases|preserved meaning|dangling-conjunction|blockquote|nested-list" README.md SKILL.md
 
-Expected: The README contains the limitation statement, the example path, and the command. It does not claim that the linter verifies semantic preservation.
+Expected: README.md contains the structural and Markdown-scope limitations, the example path, and the command. SKILL.md lists dangling-conjunction with the other linter checks. Neither file claims that the linter verifies semantic preservation.
 
-- [ ] **Step 4: Commit the documentation**
+- [ ] **Step 5: Commit the documentation**
 
 Run:
 
-    git add README.md
+    git add README.md SKILL.md
     git commit -m "docs: clarify linter scope"
 
 ## Task 6: Run the complete verification set
@@ -381,11 +408,11 @@ Expected: `syntax OK` and exit code 0. No `__pycache__` directory is created.
 
 Run:
 
-    git diff --check
+    git diff --check upstream/master...HEAD
     git status --short --branch
-    git log --oneline -4
+    git log --oneline -5
 
-Expected: git diff --check produces no output. The branch contains one committed plan plus the three focused implementation commits and no unrelated files. The working tree is clean.
+Expected: git diff --check produces no output for the committed branch diff. The branch contains one committed plan plus the three focused implementation commits and no unrelated files. The working tree is clean.
 
 - [ ] **Step 6: Prepare the upstream review information**
 
@@ -395,7 +422,7 @@ Run:
     git diff upstream/master...HEAD --stat
     git diff upstream/master...HEAD -- scripts/ste-lint.py README.md examples/linter-edge-cases.md
 
-Expected: The diff contains the committed plan, the new linter rule, its regression coverage, the synthetic example, and the README scope note. No Metis design content appears. The upstream ref was refreshed before the comparison.
+Expected: The diff contains the committed plan, the new linter rule, its regression coverage, the synthetic example, and the README and SKILL.md scope notes. No Metis design content appears. The upstream ref was refreshed before the comparison.
 
 Suggested pull request title:
 
