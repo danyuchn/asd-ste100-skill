@@ -9,3 +9,15 @@
 [2026-09-07T11:56:22-05:00][Task 0][PREFLIGHT] Baseline branch: fix/linter-dangling-conjunctions; clean except this new activity log; recent implementation base: 6f7bb36.
 [2026-09-07T11:56:22-05:00][Task 0][PREFLIGHT] Fork/upstream refs: master, origin/master, upstream/master all equal 6f7bb361ae9b97a9fcb5f5c57cbac40eacf2d438.
 [2026-09-07T11:56:22-05:00][Task 0][RULING] Use native Git Bash for SDD helper scripts because WSL Git cannot resolve this Windows linked-worktree gitdir; cost if wrong: SDD artifacts could be created outside the intended worktree.
+[2026-09-07T11:57:27-05:00][Task 1][VERIFY] Refreshed origin and upstream. master, origin/master, and upstream/master all equal 6f7bb361ae9b97a9fcb5f5c57cbac40eacf2d438. The feature branch passed merge-base --is-ancestor upstream/master HEAD.
+[2026-09-07T11:57:27-05:00][Task 1][VERIFY] Worktrees: main fork at master 6f7bb36; implementation worktree at fix/linter-dangling-conjunctions 399d761. Worktree status was clean.
+[2026-09-07T11:57:27-05:00][Task 1][VERIFY] Remotes: origin=https://github.com/kidego5150/asd-ste100-skill.git; upstream=https://github.com/danyuchn/asd-ste100-skill.git.
+[2026-09-07T11:57:27-05:00][Task 1][COMPLETE] Workspace, branch, remotes, and refreshed upstream base verified.
+[2026-09-07T11:57:55-05:00][Task 2-3][TOOLING] First task-brief invocation failed before Bash execution because PowerShell expanded the cygpath command substitution; no repository files changed. Native Git Bash direct paths are the selected workaround.
+[2026-09-07T12:04:22-05:00][Task 2-3][TDD] GPT-5.5 implementer completed RED→GREEN. Commit: a2f1fde fix: flag dangling conjunctions in lists. RED: python scripts/ste-lint.py --selftest exited 1 with AssertionError: []. GREEN: same command exited 0 with selftest OK.
+[2026-09-07T12:04:22-05:00][Task 2-3][REVIEW] Task reviewer found code and regression tests compliant with no Critical or Minor findings. Important cross-task finding: README semantic-scope documentation is not in the Task 2-3 scripts-only diff.
+[2026-09-07T12:04:22-05:00][Task 2-3][RULING] Carry the README finding to planned Task 5 because Task 2-3 explicitly limits changes to scripts/ste-lint.py and Task 5 owns README.md/SKILL.md; cost if wrong: README remains stale until Task 5, which is mandatory before final review.
+[2026-09-07T12:04:22-05:00][Task 2-3][COMPLETE] Task 2-3 TDD unit complete with implementation commit a2f1fde; README requirement carried to Task 5.
+[2026-09-07T11:59:38-05:00][Task 2-3][RED] Added dangling-conjunction self-test assertions only. Command: python scripts/ste-lint.py --selftest; exit: 1; output: Traceback ending at scripts/ste-lint.py line 160, assert len(dangling) == 4, dangling; AssertionError: [].
+[2026-09-07T12:00:22-05:00][Task 2-3][GREEN] Implemented dangling-conjunction scanner and wired it into lint() once before final sorting. Command: python scripts/ste-lint.py --selftest; exit: 0; output: selftest OK.
+[2026-09-07T12:01:57-05:00][Task 2-3][COMMIT] Created commit a2f1fde fix: flag dangling conjunctions in lists. Post-commit command: python scripts/ste-lint.py --selftest; exit: 0; output: selftest OK.
