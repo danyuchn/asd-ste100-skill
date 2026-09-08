@@ -134,14 +134,33 @@ def _dangling_conjunction_findings(text, filename):
             cleaned = INLINE_CODE.sub(" CODE ", item_line).strip()
             if cleaned:
                 meaningful.append((line_index, cleaned))
-        if meaningful and CONJUNCTION_END.search(meaningful[-1][1]):
+        if meaningful:
+            end_line_index, end_line = meaningful[-1]
+            conjunction = CONJUNCTION_END.search(end_line)
+        else:
+            end_line_index, end_line, conjunction = None, None, None
+        if conjunction:
+            if end_line_index == index:
+                finding_line = index + 1
+                finding_col = start.start("marker") + 1
+            else:
+                raw_end_line = next(
+                    raw for line_index, raw in item_lines
+                    if line_index == end_line_index
+                )
+                masked_end_line = INLINE_CODE.sub(
+                    lambda match: " " * len(match.group(0)), raw_end_line
+                )
+                raw_conjunction = CONJUNCTION_END.search(masked_end_line)
+                finding_line = end_line_index + 1
+                finding_col = raw_conjunction.start() + 1 if raw_conjunction else 1
             findings.append({
                 "file": filename,
-                "line": index + 1,
-                "col": start.start("marker") + 1,
+                "line": finding_line,
+                "col": finding_col,
                 "rule": "dangling-conjunction",
                 "level": "advisory-free",
-                "match": meaningful[-1][1],
+                "match": end_line,
                 "message": "List item ends with a coordinating conjunction. Complete the item or join it with the next item.",
             })
         index = next_index
@@ -246,7 +265,8 @@ def selftest():
     assert not any(f["rule"] == "dangling-conjunction" for f in findings)
     findings, _ = lint("- Confirm the target\n  and")
     dangling = [f for f in findings if f["rule"] == "dangling-conjunction"]
-    assert len(dangling) == 1 and dangling[0]["line"] == 1, dangling
+    assert len(dangling) == 1 and dangling[0]["line"] == 2, dangling
+    assert dangling[0]["col"] == 3, dangling
     findings, _ = lint("    - code and")
     assert not any(f["rule"] == "dangling-conjunction" for f in findings)
     findings, _ = lint("> - Confirm the target and\n> - Record the result or")
