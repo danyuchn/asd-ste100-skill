@@ -68,6 +68,7 @@ LIST_ITEM_START = re.compile(
     r"^(?P<indent> {0,3})(?P<marker>[-*+]|[0-9]+[.)])(?P<gap> +)(?P<body>.*)$"
 )
 CONJUNCTION_END = re.compile(r"\b(?:and|or)\s*$", re.I)
+TABLE_SEPARATOR_CELL = re.compile(r"^:?-{3,}:?$")
 
 
 def _word_re(base):
@@ -84,6 +85,66 @@ def _is_list_continuation(line, content_indent):
     if LIST_ITEM_START.match(line):
         return False
     return _leading_spaces(line) >= content_indent
+
+
+def _split_table_row(line):
+    """Return trimmed table cells and their zero-based source columns.
+
+    A pipe must separate at least two cells. Escaped pipes stay in their cell.
+    This deliberately implements only the ordinary Markdown table shape; it is
+    enough to distinguish a table from prose that happens to contain a pipe.
+    """
+    left = len(line) - len(line.lstrip())
+    right = len(line.rstrip())
+    content = line[left:right]
+    if "|" not in content:
+        return None
+    if content.startswith("|"):
+        content = content[1:]
+        left += 1
+    if content.endswith("|"):
+        content = content[:-1]
+    raw_cells = re.split(r"(?<!\\)\|", content)
+    if len(raw_cells) < 2:
+        return None
+
+    cells = []
+    column = left
+    for raw_cell in raw_cells:
+        leading = len(raw_cell) - len(raw_cell.lstrip())
+        cells.append((raw_cell.strip(), column + leading))
+        column += len(raw_cell) + 1
+    return cells
+
+
+def _markdown_table_cells(lines):
+    """Map ordinary Markdown table rows to their prose cells.
+
+    The separator row anchors detection, so pipe-containing prose is not
+    treated as a table. Both leading-pipe and no-leading-pipe table styles are
+    accepted when their header and body use the same number of cells.
+    """
+    table_cells = {}
+    index = 1
+    while index < len(lines):
+        separator = _split_table_row(lines[index])
+        header = _split_table_row(lines[index - 1])
+        if (not separator or not header or len(separator) != len(header)
+                or not all(TABLE_SEPARATOR_CELL.fullmatch(cell)
+                           for cell, _ in separator)):
+            index += 1
+            continue
+
+        table_cells[index - 1] = header
+        table_cells[index] = []
+        index += 1
+        while index < len(lines):
+            row = _split_table_row(lines[index])
+            if not row or len(row) != len(separator):
+                break
+            table_cells[index] = row
+            index += 1
+    return table_cells
 
 
 def _dangling_conjunction_findings(text, filename):
@@ -171,35 +232,43 @@ def lint(text, filename="<stdin>"):
     findings = []
     words_total = 0
     in_fence = False
+    lines = text.splitlines()
+    table_cells = _markdown_table_cells(lines)
     # first occurrence of each synonym-group member: (group_idx, base) -> (line, col, match)
     seen_synonyms = {}
-    for lineno, line in enumerate(text.splitlines(), 1):
-        if CODE_FENCE.match(line.strip()):
+    for lineno, raw_line in enumerate(lines, 1):
+        if CODE_FENCE.match(raw_line.strip()):
             in_fence = not in_fence
             continue
         if in_fence:
             continue
-        line = INLINE_CODE.sub("", line)
-        words_total += len(line.split())
-        for rule_id, level, pattern, msg in RULES:
-            for m in pattern.finditer(line):
-                findings.append({"file": filename, "line": lineno, "col": m.start() + 1,
-                                 "rule": rule_id, "level": level,
-                                 "match": m.group(0), "message": msg})
-        for gi, group in enumerate(SYNONYM_GROUPS):
-            for base in group:
-                if (gi, base) in seen_synonyms:
-                    continue
-                m = _word_re(base).search(line)
-                if m:
-                    seen_synonyms[(gi, base)] = (lineno, m.start() + 1, m.group(0))
-        for sent in re.split(r"(?<=[.!?])\s+", line):
-            n = len(sent.split())
-            if n > MAX_WORDS:
-                findings.append({"file": filename, "line": lineno, "col": 1,
-                                 "rule": "long-sentence", "level": "advisory-free",
-                                 "match": f"{n} words",
-                                 "message": f"Sentence has {n} words (cap {MAX_WORDS}). Split it."})
+        segments = table_cells.get(lineno - 1, [(raw_line, 0)])
+        for segment, source_column in segments:
+            line = INLINE_CODE.sub("", segment)
+            words_total += len(line.split())
+            for rule_id, level, pattern, msg in RULES:
+                for m in pattern.finditer(line):
+                    findings.append({"file": filename, "line": lineno,
+                                     "col": source_column + m.start() + 1,
+                                     "rule": rule_id, "level": level,
+                                     "match": m.group(0), "message": msg})
+            for gi, group in enumerate(SYNONYM_GROUPS):
+                for base in group:
+                    if (gi, base) in seen_synonyms:
+                        continue
+                    m = _word_re(base).search(line)
+                    if m:
+                        seen_synonyms[(gi, base)] = (
+                            lineno, source_column + m.start() + 1, m.group(0)
+                        )
+            for sent in re.split(r"(?<=[.!?])\s+", line):
+                n = len(sent.split())
+                if n > MAX_WORDS:
+                    findings.append({"file": filename, "line": lineno,
+                                     "col": source_column + 1,
+                                     "rule": "long-sentence", "level": "advisory-free",
+                                     "match": f"{n} words",
+                                     "message": f"Sentence has {n} words (cap {MAX_WORDS}). Split it."})
     # synonym rotation: flag each member after the first, at its first occurrence
     for gi, group in enumerate(SYNONYM_GROUPS):
         present = [(seen_synonyms[(gi, b)], b) for b in group if (gi, b) in seen_synonyms]
@@ -312,6 +381,27 @@ def selftest():
     assert not any(f["rule"] == "dangling-conjunction" for f in findings)
     findings, _ = lint(("word " * 30).strip() + ".")
     assert any(f["rule"] == "long-sentence" for f in findings)
+    # Markdown table syntax is layout, not prose. Each cell stays lintable.
+    short_cell = " ".join(f"term{number}" for number in range(1, 25)) + "."
+    for table in (
+            "| Label | Detail |\n"
+            "| --- | --- |\n"
+            f"| Clear | {short_cell} |",
+            "Label | Detail\n"
+            "--- | ---\n"
+            f"Clear | {short_cell}"):
+        findings, words_total = lint(table)
+        assert not any(f["rule"] == "long-sentence" for f in findings), findings
+        assert words_total == 27, words_total
+    long_cell = " ".join(f"term{number}" for number in range(1, 27)) + "."
+    findings, _ = lint(
+        "| Label | Detail |\n"
+        "| --- | --- |\n"
+        f"| Clear | {long_cell} |"
+    )
+    long_sentences = [f for f in findings if f["rule"] == "long-sentence"]
+    assert len(long_sentences) == 1, long_sentences
+    assert long_sentences[0]["match"] == "26 words", long_sentences
     # synonym rotation: second member flagged, first named as the keeper
     findings, _ = lint("Check the config file. Then verify the output. Verify twice.")
     rot = [f for f in findings if f["rule"] == "synonym-rotation"]
