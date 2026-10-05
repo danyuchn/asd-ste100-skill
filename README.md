@@ -69,6 +69,16 @@ This clones the repo into `~/.claude/skills/`, making the skill available in eve
 
 ## Usage
 
+### Linear tickets
+
+The optional [Linear Ticket Manager](linear-ticket-manager/SKILL.md) skill creates, edits, or drafts short tickets in B1 English.
+Copy the `linear-ticket-manager` folder into your agent's skills directory to install it separately.
+Use connected Linear tools to save tickets, or request a text draft without saving.
+
+Example: “Create a Linear ticket for the Argo CD move to main. Keep it short.”
+
+### General text
+
 Trigger with a request to simplify or clarify English text:
 
 ```
