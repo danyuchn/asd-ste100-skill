@@ -1,0 +1,2 @@
+# YAML validation for skill metadata. Installation and linting use only stdlib.
+PyYAML>=6.0.2,<7

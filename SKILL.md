@@ -1,10 +1,20 @@
 ---
 name: asd-ste100
-description: "Use when English text must be parsed without a human to resolve ambiguity — tool descriptions, error messages, inter-agent instructions, system prompts, status reports — and misreading has a real cost, or when text reads as dense, hedged, or easy to misparse. Triggers: disambiguate, STE100 rewrite, apply Simplified Technical English, plain-language rewrite, controlled-language rewrite, rewrite so an agent cannot misread this. Not for creative or marketing copy."
-version: 0.4.0
+description: "Rewrite dense or ambiguous technical English using ASD-STE100 principles. Use for plain-language rewrites of tool descriptions, error messages, prompts, instructions, and status reports, or when asked to disambiguate text or apply Simplified Technical English. Preserve meaning and uncertainty. Not for creative or marketing copy."
+license: MIT
+metadata:
+  version: "0.5.0"
 ---
 
 # Simplified Technical English (ASD-STE100)
+
+## Runtime and Resources
+
+Use these instructions in Claude Code or Codex. Apply them to the requested text or writing task, not to unrelated work.
+
+Resolve `scripts/`, `references/`, and `examples/` relative to the directory containing this `SKILL.md`. The user's working directory can be elsewhere. Run the linter with Python 3.9 or newer, using its absolute path and the input file's absolute path. Quote paths that contain spaces. Python is optional for rewriting. If it is unavailable, apply the rules directly and do not claim a linter check.
+
+Read `references/writing-rules.md` when you need rule details or citations. Read `examples/before-after.md` when a worked rewrite would help. Keep identifiers, placeholders, code, URLs, and command syntax intact unless the user requests changes to them.
 
 ASD-STE100 is a controlled-language standard built by the aerospace and defense industry (ASD, the AeroSpace and Defense Industries Association of Europe) to stop maintenance technicians from misreading English instructions. The standard removes the two biggest sources of misreading: words with more than one meaning, and sentences with more than one possible structure.
 
