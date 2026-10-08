@@ -1,0 +1,4 @@
+interface:
+  display_name: "ASD-STE100 · Simplified Technical English"
+  short_description: "Clarify technical English without changing meaning"
+  default_prompt: "Use $asd-ste100 to simplify this technical text while preserving every fact, condition, and uncertainty."
