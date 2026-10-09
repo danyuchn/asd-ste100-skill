@@ -89,6 +89,10 @@ Not built for: creative writing, marketing copy, or anything where voice and nua
 
 One limit worth stating up front: this fixes the form of a text, not its substance. A paragraph with nothing to say comes out short, clean, and still empty.
 
+## Other Languages
+
+- **Hebrew:** [g4lb/asd-ste100-hebrew-skill](https://github.com/g4lb/asd-ste100-hebrew-skill) is a Hebrew port of this skill. It includes a Hebrew linter. ASD-STE100 defines English only, so the Hebrew rules are an adaptation, not an official standard.
+
 ## Sources
 
 - [ASD-STE100 official site](https://www.asd-ste100.org/)
