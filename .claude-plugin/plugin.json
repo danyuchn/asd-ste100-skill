@@ -1,7 +1,11 @@
 {
-  "name": "asd-ste100",
-  "description": "Rewrite ambiguous English into ASD-STE100 Simplified Technical English",
-  "author": { "name": "danyuchn" },
-  "repository": "https://github.com/danyuchn/asd-ste100-skill",
-  "license": "MIT"
+	"$schema": "https://xsyetopz.github.io/claude-code-docs/schemas/claude-code-plugin-manifest.json",
+	"name": "asd-ste100",
+	"version": "0.5.0",
+	"description": "Rewrites English in the style of ASD-STE100 Simplified Technical English, so that a model or a reader with no way to ask has one reading. Includes the ste-lint script for the structural rules.",
+	"author": { "name": "xsyetopz" },
+	"homepage": "https://github.com/xsyetopz/asd-ste100-skill-next",
+	"repository": "https://github.com/xsyetopz/asd-ste100-skill-next",
+	"license": "MIT",
+	"keywords": ["ste", "simplified-technical-english", "controlled-language", "technical-writing", "prompts", "lint"]
 }

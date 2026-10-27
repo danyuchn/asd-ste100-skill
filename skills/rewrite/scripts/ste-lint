@@ -1,0 +1,404 @@
+#!/usr/bin/env python3
+"""Lint Markdown or plain text for the structural STE rules.
+
+Usage:
+    ste-lint [--json] [--baseline N] [--disable RULES] [--max-words N] [FILE ...]
+    ste-lint <<'EOF' ... EOF           # stdin when no FILE is given, or for "-"
+
+Output: one line per finding, "file:line:col: rule: message [match]", then a
+summary line. Hedges and modality (may, might, could) are never flagged.
+Exit 0 pass, 1 hard findings over the baseline, 2 usage error.
+Advisory findings (passive-voice, present-perfect) never fail the run.
+"""
+import argparse
+import bisect
+import json
+import re
+import sys
+
+# Regex heuristics, not a parser. Irregular participles for present-perfect.
+IRREGULAR = ("given|taken|made|done|found|seen|known|shown|written|built|sent|set|run|read|kept|held|left|put|cut|hit|let|shut|split|spread|begun|become|come|gone|got|gotten|lost|met|paid|said|sold|told|thought|brought|bought|caught|taught|won|worn|torn|born|drawn|grown|thrown|flown|driven|risen|chosen|broken|spoken|frozen|hidden|ridden|forgotten|fallen|eaten|beaten|understood|stood|struck|stuck|swung|hung|led|fed|bled|fled|sped|bound|wound|dug|spun|slid|bit|lit|quit")
+PASSIVE = "given|taken|made|done|found|seen|known|shown|written|built|sent|set|run|read|kept|held|left|put"
+MODAL_BEFORE = re.compile(r"\b(?:may|might|could|should|would|must|can|will|shall)(?:\s+not|n?['’]t)?\s+$", re.I)
+
+RULES = [  # (id, level, pattern, message)
+    ("semicolon", "hard", re.compile(r";"),
+     "Split it into two sentences."),
+    ("phrasal-verb", "hard",
+     re.compile(r"\b(spin(?:ning|s)? up|spun up|reach(?:ing|es|ed)? out|div(?:e|es|ing|ed) into|dove into|kick(?:ing|s|ed)? off|circl(?:e|es|ing|ed) back|touch(?:ing|es|ed)? base)\b", re.I),
+     "Use one plain verb (start, contact, read, begin)."),
+    ("marketing-adjective", "hard",
+     re.compile(r"\b(seamless(?:ly)?|robust(?:ly)?|cutting-edge|effortless(?:ly)?|blazing[- ]fast|world-class|state-of-the-art|game-chang(?:ing|er))\b", re.I),
+     "Delete it, or give the measurement."),
+    ("nominalization", "hard",
+     re.compile(r"\b(perform|performs|performed|conduct|conducts|conducted|carry out|carries out|carried out)\s+(?:a|an|the)\s+\w+(?:tion|sion|ment|ance|ence|[oy]sis|[oye]ses|esis)\b", re.I),
+     "Use the verb (analyze, not perform an analysis)."),
+    ("passive-voice", "advisory",
+     re.compile(r"\b(is|are|was|were|been|being)\s+(\w+ed|" + PASSIVE + r")\b(?!\s+(?:to|for|by)\s+\w+ing)", re.I),
+     "Name the actor. Use an active verb."),
+    ("present-perfect", "advisory",
+     re.compile(r"\b(has|have|had)\s+(?:been\s+)?(?:\w+(?:ed|en)|" + IRREGULAR + r")\b", re.I),
+     "Use the simple past or present."),
+]
+RULE_IDS = [r[0] for r in RULES] + ["long-sentence", "synonym-rotation", "dangling-conjunction"]
+HARD = {"semicolon", "long-sentence", "phrasal-verb", "marketing-adjective",
+        "nominalization", "synonym-rotation", "dangling-conjunction"}
+
+# Verbs that name one action. error/fault/failure are different things: not here.
+SYNONYMS = [
+    ("check", "verify", "confirm", "validate"), ("delete", "remove", "erase"),
+    ("start", "launch", "begin", "initiate"), ("stop", "halt", "terminate"),
+    ("show", "display"), ("use", "utilize", "employ"), ("fix", "repair"),
+    ("send", "transmit"), ("get", "retrieve", "fetch", "obtain"),
+    ("change", "modify", "alter"),
+]
+GROUP_OF = {word: group for group in SYNONYMS for word in group}
+SYNONYM_RE = re.compile(r"\b(" + "|".join(GROUP_OF) + r")(?:s|es|ed|d|ing)?\b", re.I)
+
+# Spans blanked before any rule runs: code, link URLs, autolinks, entities.
+MASK = re.compile(r"`[^`]*`|(?<=\])\((?:[^()]|\([^()]*\))*\)|<[a-z][a-z0-9+.-]*:[^>\s]*>"
+                  r"|&(?:#x?[0-9a-f]+|[a-z][a-z0-9]*);", re.I)
+REFDEF = re.compile(r"^ {0,3}\[(?!\^)[^\]]+\]:\s")
+FENCE = re.compile(r" {0,3}(`{3,}|~{3,})(.*)")
+COMMENT = re.compile(r"<!--.*?-->")
+QUOTE = re.compile(r"^ {0,3}(?:> ?)+")
+LIST_ITEM = re.compile(r"^( *)([-*+]|[0-9]{1,9}[.)])(?:[ \t]+|$)")
+THEMATIC = re.compile(r"^ {0,3}(?:[-*_=] *){3,}$")
+HEADING = re.compile(r"^ {0,3}#{1,6}(?: |$)")
+ALERT = re.compile(r"\[!(?:note|tip|important|warning|caution)\]", re.I)
+SEPARATOR_CELL = re.compile(r":?-{3,}:?")
+CONJUNCTION = re.compile(r"\b(and|or)\s*$", re.I)
+WORD_CHAR = re.compile(r"[^\W_]")
+SENTENCE_END = re.compile(r"[.!?][\"'”’)\]*_]*$")
+OPENERS = "\"'“‘([*_"
+ABBREVIATIONS = {"vs.", "cf.", "approx.", "mr.", "mrs.", "ms.", "dr.", "fig.", "no."}
+DOTTED = re.compile(r"(?:[a-z]\.){2,}", re.I)
+
+
+EPILOG = """examples:
+  ste-lint README.md
+  ste-lint --max-words 20 <<'EOF' ... EOF
+  ste-lint --json --baseline 5 docs/*.md
+
+rules (hard fail the run, advisory never do):
+  hard:     %s
+  advisory: passive-voice, present-perfect
+
+exit codes:
+  0  pass
+  1  hard findings over the baseline
+  2  usage error (bad flag or value, unknown rule, unreadable file)
+""" % ", ".join(r for r in RULE_IDS if r in HARD)
+
+
+def mask(text, fill=" "):
+    """Blank spans with equal-length fill, so columns stay true."""
+    return MASK.sub(lambda m: fill * len(m.group()), text)
+
+
+def view(raw):
+    """Return the masked line with its quote prefix blanked, and the prefix length."""
+    q = QUOTE.match(raw)
+    pre = q.end() if q else 0
+    return " " * pre + mask(raw)[pre:], pre
+
+
+def split_row(text, start=0):
+    """Return [(cell, column)] for a table row, or None when it is not one."""
+    row = text[start:]
+    if "|" not in row:
+        return None
+    col = start + len(row) - len(row.lstrip())
+    row = row.strip()
+    if row.startswith("|"):
+        row, col = row[1:], col + 1
+    if row.endswith("|") and not row.endswith("\\|"):
+        row = row[:-1]
+    parts = re.split(r"(?<!\\)\|", row)
+    if len(parts) < 2:
+        return None
+    cells = []
+    for part in parts:
+        cells.append((part.strip(), col + len(part) - len(part.lstrip())))
+        col += len(part) + 1
+    return cells
+
+
+def scan(text):
+    """Preprocess Markdown once. Return (blocks, dangling).
+
+    A block is a list of (line, column, text) prose pieces. Markup (quote
+    prefixes, list markers, heading hashes) is blanked, never removed.
+    dangling lists (line, column, word) for list items that end in and/or.
+    """
+    lines = re.split(r'\r\n|\n|\r', text)
+    n = len(lines)
+    blocks, current, dangling = [], [], []
+    fence = None
+    comment = list_open = prev_text = prev_quote = False
+    item = None
+    i = 0
+    if n and lines[0].strip() == "---":
+        for j in range(1, n):
+            if lines[j].strip() == "---":
+                i = j + 1
+                break
+
+    def cut():
+        nonlocal current
+        if current:
+            blocks.append(current)
+            current = []
+
+    def close_item():
+        nonlocal item
+        if item and item["last"]:
+            lineno, tail = item["last"]
+            m = CONJUNCTION.search(tail)
+            if m:
+                col = item["col"] if lineno == item["line"] else m.start(1) + 1
+                dangling.append((lineno, col, m.group(1)))
+        item = None
+
+    while i < n:
+        raw = lines[i]
+        lineno = i + 1
+        i += 1
+        s = raw.strip()
+        if not comment:
+            q = QUOTE.match(raw)
+            f = FENCE.fullmatch(raw[q.end() if q else 0:].rstrip())
+            if fence:
+                if (f and f.group(1)[0] == fence[0] and len(f.group(1)) >= len(fence)
+                        and not f.group(2).strip()):
+                    fence = None
+                    cut()
+                continue
+            if f and not (f.group(1)[0] == "`" and "`" in f.group(2)):
+                fence = f.group(1)
+                cut()
+                continue
+        if comment:
+            cut()
+            comment = "-->" not in raw
+            continue
+        if not s:
+            cut()
+            prev_text = prev_quote = False
+            continue
+        if REFDEF.match(raw):
+            cut()
+            prev_text = False
+            continue
+        line = COMMENT.sub(lambda m: " " * len(m.group()), raw)
+        k = line.find("<!--")
+        if k >= 0:
+            comment = True
+            line = line[:k] + " " * (len(line) - k)
+        text_line, pre = view(line)
+        quoted = pre > 0
+        body = line[pre:]
+        expanded = body.expandtabs(4)
+        indent = len(expanded) - len(expanded.lstrip(" "))
+        lm = LIST_ITEM.match(body)
+        starts_item = bool(lm) and not THEMATIC.match(body)
+        if item and (starts_item or quoted or indent < item["indent"]):
+            close_item()
+        if not starts_item and not quoted and indent == 0:
+            list_open = False
+        was_quote, prev_quote = prev_quote, quoted
+        if quoted != was_quote:
+            cut()
+        if raw[pre:].lstrip().startswith("<") or (
+                indent >= 4 and not list_open and not prev_text and not quoted):
+            cut()
+            prev_text = False
+            continue
+        if quoted and not was_quote and ALERT.fullmatch(body.strip()):
+            continue
+        heading = HEADING.match(body)
+        if THEMATIC.match(body) or heading:
+            cut()
+            prev_text = False
+            if heading:
+                end = pre + heading.end()
+                current.append((lineno, 0, " " * end + text_line[end:]))
+                cut()
+            continue
+        header = None if starts_item or i >= n else split_row(text_line, pre)
+        if header:
+            sep = split_row(lines[i], view(lines[i])[1])
+            if (sep and len(sep) == len(header)
+                    and all(SEPARATOR_CELL.fullmatch(c) for c, _ in sep)):
+                cut()
+                rows = [(lineno, header)]
+                i += 1
+                while i < n:
+                    row_text, row_pre = view(lines[i])
+                    row = split_row(row_text, row_pre)
+                    if not row or len(row) != len(header):
+                        break
+                    i += 1
+                    rows.append((i, row))
+                for row_line, row in rows:
+                    for cell, col in row:
+                        if cell:
+                            blocks.append([(row_line, col, cell)])
+                prev_text = False
+                continue
+        dtext = mask(line, "#")
+        if starts_item:
+            cut()
+            list_open = True
+            end = pre + lm.end()
+            text_line = " " * end + text_line[end:]
+            dtext = " " * end + dtext[end:]
+            if not quoted:
+                item = {"line": lineno, "col": lm.start(2) + 1, "last": None,
+                        "indent": max(lm.end(), lm.end(2) + 1)}
+        if item and dtext.strip():
+            item["last"] = (lineno, dtext)
+        if text_line.strip():
+            current.append((lineno, 0, text_line))
+        prev_text = True
+    cut()
+    close_item()
+    return blocks, dangling
+
+
+def sentence_starts(text):
+    """Return the offset of each sentence start. One linear pass over the words."""
+    words = list(re.finditer(r"\S+", text))
+    if not words:
+        return [0]
+    starts = [words[0].start()]
+    for word, nxt in zip(words, words[1:]):
+        end = SENTENCE_END.search(word.group())
+        if not end:
+            continue
+        core = word.group()[:end.start() + 1].lstrip(OPENERS)
+        if core.lower() in ABBREVIATIONS:
+            continue
+        if DOTTED.fullmatch(core) and not nxt.group().lstrip(OPENERS)[:1].isupper():
+            continue
+        starts.append(nxt.start())
+    return starts
+
+
+def long_sentences(block, cap):
+    """Yield (line, col, word count) for each sentence over the cap in one block."""
+    offsets, pos = [], 0
+    for _, _, piece in block:
+        offsets.append(pos)
+        pos += len(piece) + 1
+    joined = " ".join(piece for _, _, piece in block)
+    starts = sentence_starts(joined)
+    for start, end in zip(starts, starts[1:] + [len(joined)]):
+        count = sum(1 for t in joined[start:end].split() if WORD_CHAR.search(t))
+        if count > cap:
+            k = bisect.bisect_right(offsets, start) - 1
+            lineno, col, _ = block[k]
+            yield lineno, col + start - offsets[k] + 1, count
+
+
+def lint(text, name, cap):
+    """Return the findings of one text, sorted by line and column."""
+    blocks, dangling = scan(text)
+    found = []
+
+    def add(line, col, rule, match, message):
+        found.append({"file": name, "line": line, "col": col, "rule": rule,
+                      "level": "hard" if rule in HARD else "advisory",
+                      "match": match, "message": message})
+
+    seen = {}
+    for block in blocks:
+        for lineno, col, piece in block:
+            for rule, _, pattern, message in RULES:
+                for m in pattern.finditer(piece):
+                    if rule == "present-perfect" and MODAL_BEFORE.search(piece[:m.start()]):
+                        continue
+                    add(lineno, col + m.start() + 1, rule, m.group(0), message)
+            for m in SYNONYM_RE.finditer(piece):
+                seen.setdefault(m.group(1).lower(), (lineno, col + m.start() + 1, m.group(0)))
+        for lineno, col, count in long_sentences(block, cap):
+            add(lineno, col, "long-sentence", f"{count} words",
+                f"Sentence has {count} words (cap {cap}). Split it.")
+    for group in SYNONYMS:
+        used = sorted((seen[w], w) for w in group if w in seen)
+        for (lineno, col, match), word in used[1:]:
+            add(lineno, col, "synonym-rotation", match,
+                f"'{word}' repeats '{used[0][1]}'. Use '{used[0][1]}' only.")
+    for lineno, col, word in dangling:
+        add(lineno, col, "dangling-conjunction", word,
+            f"List item ends with '{word}'. Finish the item or join it to the next.")
+    found.sort(key=lambda f: (f["line"], f["col"]))
+    return found
+
+
+def rule_list(value):
+    rules = {r.strip() for r in value.split(",") if r.strip()}
+    unknown = rules - set(RULE_IDS)
+    if unknown:
+        raise argparse.ArgumentTypeError(
+            f"unknown rule(s): {', '.join(sorted(unknown))}. Known rules: {', '.join(RULE_IDS)}")
+    return rules
+
+
+def int_arg(minimum):
+    def parse(value):
+        try:
+            number = int(value)
+        except ValueError:
+            number = minimum - 1
+        if number < minimum:
+            raise argparse.ArgumentTypeError(f"expected an integer >= {minimum}, got {value!r}")
+        return number
+    return parse
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        prog="ste-lint", allow_abbrev=False, epilog=EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Lint text for structural STE rules. Reads stdin when no FILE is given or for -.")
+    parser.add_argument("paths", nargs="*", metavar="FILE")
+    parser.add_argument("--json", action="store_true", help="print findings as JSON")
+    parser.add_argument("--baseline", type=int_arg(0), default=0, metavar="N",
+                        help="fail only when hard findings exceed N (default 0)")
+    parser.add_argument("--disable", type=rule_list, default=set(), metavar="RULES",
+                        help="comma-separated rule IDs to drop")
+    parser.add_argument("--max-words", type=int_arg(1), default=25, metavar="N",
+                        help="sentence word cap (default 25)")
+    parser.add_argument("--limit", type=int_arg(0), default=50, metavar="N",
+                        help="text output: show the first N findings, 0 for all (default 50)")
+    args = parser.parse_intermixed_args(argv)
+
+    findings = []
+    for path in args.paths or ["-"]:
+        try:
+            if path == "-":
+                text = sys.stdin.buffer.read().decode("utf-8-sig")
+            else:
+                with open(path, encoding="utf-8-sig") as fh:
+                    text = fh.read()
+        except (OSError, ValueError) as e:
+            parser.error(f"cannot read {'<stdin>' if path == '-' else path}: {getattr(e, 'strerror', None) or e}")
+        findings += [f for f in lint(text, "<stdin>" if path == "-" else path, args.max_words)
+                     if f["rule"] not in args.disable]
+    hard = sum(f["level"] == "hard" for f in findings)
+    if args.json:
+        print(json.dumps({"findings": findings, "hard": hard, "baseline": args.baseline}, indent=2))
+    else:
+        shown = findings[:args.limit] if args.limit else findings
+        for f in shown:
+            print(f"{f['file']}:{f['line']}:{f['col']}: {f['rule']}: {f['message']} [{f['match']}]")
+        hidden = len(findings) - len(shown)
+        print(f"{len(findings)} findings ({hard} hard, {len(findings) - hard} advisory, "
+              f"baseline {args.baseline})"
+              + (f", {hidden} not shown (use --limit 0 or --json)" if hidden else ""))
+    return 1 if hard > args.baseline else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

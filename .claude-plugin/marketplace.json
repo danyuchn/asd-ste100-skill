@@ -1,11 +1,12 @@
 {
-  "name": "asd-ste100-skill",
-  "description": "The asd-ste100 skill as a Claude Code plugin",
-  "owner": { "name": "danyuchn" },
-  "plugins": [
-    {
-      "name": "asd-ste100",
-      "source": "./"
-    }
-  ]
+	"$schema": "https://xsyetopz.github.io/claude-code-docs/schemas/claude-code-marketplace.json",
+	"name": "asd-ste100-skill-next",
+	"description": "The asd-ste100 plugin for Claude Code",
+	"owner": { "name": "xsyetopz" },
+	"plugins": [
+		{
+			"name": "asd-ste100",
+			"source": "./"
+		}
+	]
 }
