@@ -1,3 +1,6 @@
 __pycache__/
 evals/results/
 .DS_Store
+
+# Local state, cache, and scratch files of claudetto, not for the public repository.
+/.claude/claudetto/
