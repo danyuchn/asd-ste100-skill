@@ -693,3 +693,32 @@ Sample a weak case again before you change the trigger text.
 
 The same 8 rounds hold the evidence for the trigger fix. `injection-in-source` on Haiku 5.5 missed 7
 of 23 runs before it. The case now fires in 7 of 8 samples, and it passes 3 of 3 eval runs.
+
+## A Byte Escape Lints the Text That Claude Code Refuses
+
+Claude Code refuses a `Bash` command whose text holds an invisible character. The lint of the
+source at step 2 therefore fails on the one case that needs it most. Four edits of the skill each
+moved one or two runs of six, because each one asked the model to carry on after the refusal.
+
+One Haiku 5.5 run found the real answer by itself. It sent the source as a byte escape:
+
+```bash
+printf 'the worker\xe2\x80\x8bpool size to 4\n' | scripts/ste-lint --max-words 20
+```
+
+The command text holds no invisible character, so Claude Code runs it. The linter still reads the
+real character and reports `invisible-character: U+200B (ZERO WIDTH SPACE)` with its column. The
+`--allow-tools` pattern of the eval covers the pipe, because the pattern matches the linter call.
+
+Another run of the same case used `$'...'` with the literal character inside, and Claude Code
+refused it. The refusal therefore depends on the bytes of the command alone. A byte escape passes,
+and a shell quote of the same character does not.
+
+The lesson for a skill that reads hostile text is one sentence. Give the model the command that
+works, in place of a reason to carry on after a refusal.
+
+## A Denied Tool Call Still Counts for a Tool Grader
+
+`rewrite-linted` uses `type: tool_used` with `min: 2`. One Sonnet 5.5 run made one refused lint call
+and one accepted lint call, and the grader passed. The harness counts the call that the model sent,
+so a `min` of 2 stays reachable on a case whose first call gets a refusal.
