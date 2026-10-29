@@ -464,3 +464,23 @@ That sentence names the tool, and it names the don't-ask mode, so a second call 
 
 Step 2 now states that difference, so the retry has a reason. A model needs the cause of a refusal
 to retry it, because the text of the refusal points at the tool.
+
+## A Short Rewrite Hides a Skipped Lint
+
+`rewrite-linted` with `min: 2` failed in 6 of 6 runs of `invisible-space`, on Haiku 5.5 and on
+Sonnet 5.5. Each trace holds one lint call. The same grader passed 3 of 3 on
+`cc-tool-schema-effort`, where the source is long.
+
+One Haiku run linted the source with success, and it still linted no rewrite. The rewrite of this
+case is two short sentences, so a model reads it in place of a count. The 21-word sentence of
+`cc-tool-schema-effort` shows the cost of that choice.
+
+Step 4 now asks for the lint of a rewrite of one sentence, and it gives the reason. The linter
+counts each word, and a reading estimates the count.
+
+Step 2 pairs the refusal with that lint. The rewrite holds no invisible character, so the lint at
+step 4 runs where the lint of the source did not. One retry with a reason beats a second rule.
+
+The same run gave the format fix its evidence. Haiku 5.5 went from 3 failing graders to one in 2 of
+3 runs. Sonnet 5.5 wrote the exact list in 3 of 3 runs. The grammar of the wrong shape replaced its
+quotable sentence, and the list came back.
