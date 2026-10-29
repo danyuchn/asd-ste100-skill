@@ -339,7 +339,22 @@ def _dangling_conjunction_findings(text, filename):
     return findings
 
 
+def _blank_front_matter(text):
+    """Blank a leading YAML front-matter block, keeping line numbers.
+
+    Front matter is metadata, not prose: without this, its keys and values
+    join into one sentence.
+    """
+    lines = text.splitlines()
+    if lines and lines[0].rstrip() == "---":
+        for end in range(1, len(lines)):
+            if lines[end].rstrip() == "---":
+                return "\n" * (end + 1) + "\n".join(lines[end + 1:])
+    return text
+
+
 def lint(text, filename="<stdin>"):
+    text = _blank_front_matter(text)
     findings = []
     words_total = 0
     in_fence = False
@@ -608,6 +623,14 @@ def selftest():
     assert len(long_sentences) == 1, long_sentences
     assert (long_sentences[0]["line"], long_sentences[0]["col"]) == (2, 1), long_sentences
     findings, _ = lint(f"- Item {twenty}\n  continued in the same item.")
+    assert any(f["rule"] == "long-sentence" for f in findings), findings
+    # leading front matter is skipped; line numbers after it stay true
+    findings, words_total = lint(f"---\nname: x\ndescription: {twenty} {twenty}.\n"
+                                 "tags:\n  - a and\n---\nThe job is robust.")
+    assert [(f["line"], f["rule"]) for f in findings] == [(7, "marketing-adjective")], findings
+    assert words_total == 4, words_total
+    # a later --- pair is a thematic break, not front matter
+    findings, _ = lint(f"Intro.\n\n---\n{twenty} {twenty}.\n---")
     assert any(f["rule"] == "long-sentence" for f in findings), findings
     # blank lines, headings, rules, list items, and quotes end a prose block
     for sep in ("\n\n", "\n# Heading\n", "\n---\n", "\n- ", "\n> "):
