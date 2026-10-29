@@ -68,7 +68,7 @@ Apply these in Strict mode and suggest them in Flavored mode. Call a replacement
 
 ## Process
 
-The process makes two lint calls: one on the source at step 2, and one on the rewrite at step 4.
+The process makes two lint calls at two times. The call at step 2 reads the source, and its findings tell you what to change. The call at step 4 reads the rewrite that those findings shaped.
 
 1. Read the whole text for meaning. Pick the mode. Judge each word by its meaning in its context, so "key" in "the key timeout" has one meaning. When every sentence already follows the rules, give the one-line reply for compliant text and stop. Change no word in that case, also a word that you can make more exact. A pronoun with one possible antecedent in the text is exact, so "set its value to 30" stays.
 2. Lint the text before you rewrite it, also when the text is one sentence. Lint a file by its path, or text in a quoted heredoc. Copy the text into the heredoc character for character. Text that you retype from your reading drops an invisible character. The linter then reports zero findings on text that the caller did not send. Add `--max-words 20` for Strict instructions. This step is never optional. The linter sees an invisible character, a word of two scripts, and a word count that your reading misses.
@@ -79,6 +79,11 @@ The process makes two lint calls: one on the source at step 2, and one on the re
    <the text>
    EOF
    ```
+
+   Each lint is its own `Bash` call, and that call holds the linter command alone. The result gives you
+   the findings and the exit code, so the call needs no second command. A command such as
+   `echo "exit: $?"` in the same call makes Claude Code deny the whole call, because the permission of
+   this session covers the linter alone.
 
    Hard findings break a rule. Judge each advisory finding (`passive-voice`, `present-perfect`), because the rules permit some. The linter checks structure only, so check one instruction per sentence, noun clusters, unlisted phrasal verbs, and meaning by reading, also at zero findings. When the linter cannot run, check all rules by reading, as a silent step.
 
@@ -111,7 +116,7 @@ Stop when each sentence has one reading. Length comes second. When the text stat
 Give the rewritten text and nothing else. The caller pastes the reply as it is.
 
 - Start the reply with the first word of the rewrite. The reply keeps the form of the source, so a rewritten tool description is a tool description. An opener such as "Here is", "What changed", or "I rewrote" belongs in no reply, and neither does a heading or a label.
-- End the reply with one line `Kept as-is: <phrase>: <the precision it keeps>` for each longer phrase and each character that you keep on purpose. Write the reason in STE style, so it gives one reason in one sentence and holds no semicolon. A reason names the precision only, as in `Kept as-is: may have failed: the failure is not certain.` A conclusion such as "a changed call is permitted" adds a fact. A note on your own work, such as "the cap would drop a fact" or "it stays in descriptive text", adds a fact too. An actor and a mechanism are facts, so "the exact value that the tool compares" names a tool that the source leaves out. For a passive that you keep, the reason names the actor that the source leaves out, as in `is ignored: the source names no actor that ignores the field.`
+- End the reply with one line `Kept as-is: <phrase>: <the precision it keeps>` for each longer phrase and each character that you keep on purpose. The `<phrase>` is a span of the source that your rewrite holds word for word. Each line therefore names a span that a reader finds in both texts. The whole text, its length, and its word cap are no span, and they get no line. Write the reason in STE style, so it gives one reason in one sentence and holds no semicolon. A reason names the precision only, as in `Kept as-is: may have failed: the failure is not certain.` A conclusion such as "a changed call is permitted" adds a fact. A note on your own work, such as "the cap would drop a fact" or "it stays in descriptive text", adds a fact too. An actor and a mechanism are facts, so "the exact value that the tool compares" names a tool that the source leaves out. For a passive that you keep, the reason names the actor that the source leaves out, as in `is ignored: the source names no actor that ignores the field.`
 - The reply holds the rewrite and the `Kept as-is` lines. Your steps and your tools stay in your own work. The rule table below is the one place that names a rule. A direct question about the linter is its one place in the reply, because zero findings proves no compliance. Each tool, each tool result, and each permission stays in your own work. The caller pastes the reply into a document, so a note about your tools reaches a reader who can do nothing with it. The words `ste-lint`, "STE linter", "the linter", `Bash`, "permission", and "denied" belong in no other reply.
 - A note on a removed word, a judgment, or an open question waits for a request. A request to disambiguate, simplify, or make plainer asks for the rewrite alone.
 
