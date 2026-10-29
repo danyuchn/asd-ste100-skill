@@ -179,7 +179,8 @@ merged two actions into one sentence to save words.
 
 One sentence of precedence ended the trade. One action for each sentence wins over the cap. Haiku
 5.5 and Sonnet 5.5 then each scored 2 of 3. A trigger miss caused one of the two failures, and a
-judge split of 2 to 1 caused the other.
+judge split of 2 to 1 caused the other. The two reason rules of the next section followed, and
+Haiku 5.5 then scored 3 of 3 at 1.00.
 
 A model trades one rule against another when a new rule raises the weight of one side. The file
 already held the pattern for this, in the hedge rule: a hedge wins over the tense rule. State which
@@ -254,6 +255,24 @@ case scored 3 of 3 at 1.00.
 
 A grader that judges two concerns hides the concern that failed.
 
+## A Rule of Style Needs the Shape That Breaks It
+
+Two rules of the skill said what good looks like and left the bad shape open. A model then read each
+one as advice.
+
+The `Kept as-is` rule said "Write the reason in STE style". Haiku 5.5 wrote
+`the `о` is Cyrillic (U+043E), not Latin `o`; the name is copied exactly from the source.` The
+semicolon failed the `no-semicolon` grader of `lookalike-identifier` in 2 of 3 runs. The rewrite
+above it was correct in all three runs. The rule now says that the reason gives one reason in one
+sentence and holds no semicolon. The case scored 3 of 3 at 1.00.
+
+The same rule listed two shapes that add a fact, a conclusion and a note on your own work. It did
+not list an actor. Two Haiku reasons named one: `the exact value that the harness checks` and
+`the exact value string that the tool compares against`. The rule now names an actor and a
+mechanism as facts. `cc-tool-schema-model` went from 1 of 3 to 3 of 3 at 1.00 on Haiku 5.5.
+
+A rule of style that names no bad shape is advice. A rule that quotes the bad shape is a bound.
+
 ## A Grader Needs Examples from Its Own Source
 
 Four `one-action-per-sentence` graders shared one pass example. Two of them named fields that their
@@ -313,6 +332,10 @@ passed 14. The one-run matrices reported 11 to 13 for Haiku and 13 to 16 for Son
 
 The drop for Haiku is the real signal. Haiku fails a different grader in each run, so one run finds
 about half of its misses. The two stronger models sit near the top under both rules.
+
+A count of clean runs separates the two effects. Each model made 51 runs. Haiku 5.5 gave 32 clean
+runs, Sonnet 5.5 gave 47, and Opus 5.5 gave 48. The case count of Haiku drops much faster than its
+run count, because its misses spread over many cases.
 
 A strict rule also separates a defect from noise at a glance. A grader that fails 3 of 3 runs is
 deterministic. The matrix found two: `actor-named` on `cc-system-prompt-permissions`, and
