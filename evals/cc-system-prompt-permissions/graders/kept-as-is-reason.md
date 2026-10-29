@@ -11,6 +11,8 @@ A reason fails when it makes a claim that the source does not state. A reason al
 
 A reason can state what the kept word excludes, because the exclusion is the precision. "explicitly: an implied request does not count." passes.
 
+A reason can state the actor that the source leaves out of a kept passive, because that absence is what the phrase carries. "is ignored: the source names no actor that ignores the field." passes.
+
 A kept character, a kept letter case, and a kept punctuation mark each carry a form. A reason for one of them states what the form carries, such as emphasis, and it passes.
 
 These reasons pass:
@@ -21,3 +23,5 @@ These reasons pass:
 These reasons fail:
 - "exact same: a changed call is permitted." The source grants no permission for a changed call.
 - "7 sentences: the 20-word cap needs one action for each sentence." It reports the writer's own work.
+- "is ignored: the source names no actor and gives no subject to recast it to." The recast is a rule of the writer.
+- "the default subagent model is set by the user, not by the agent." The source names no actor who sets it.
