@@ -24,24 +24,35 @@ Only a failure on more than one model, or a repeat on the same model, carries we
 
 Use `evals/compare-runs.py` for the shape of a change. Confirm each flip with `--runs 3` on the case.
 
-## A Single-Run Matrix Carries Two Cases of Noise
+## A Single-Run Matrix Mixes Noise with Change
 
-Three full matrices ran with `--runs 1`. Haiku 5.5 passed 13, then 13, then 11 of the 17 cases.
-Sonnet 5.5 passed 16, then 13, then 16.
+Four matrices ran with `--runs 1` on the 17 cases. Haiku 5.5 passed 11, then 13, then 13, then 11.
+Sonnet 5.5 passed 16, then 13, then 13, then 16. Opus 5.5 passed 15 in each of its three matrices.
 
-The spread is about two cases for each model. A matrix shows the shape of a change.
-A flip of one case needs `--runs 3` on that case.
+An edit of the skill came before each matrix, so that spread of 2 to 3 cases holds noise and change
+together. A matrix total alone attributes nothing.
+
+A repeat of one case separates the two. The `open-condition` case scored 0.82, 1.00, 0.82, and 0.82
+on Sonnet 5.5, and no edit came between those runs.
+
+Read a matrix for the shape of a change. Confirm each flip with `--runs 3` on the case.
 
 ## A Turn Limit Abort Reads as a Quality Collapse
 
-One Opus 5.5 run of `cc-system-prompt-permissions` failed 8 graders at the same time. That run held
-`error: 'exit 1: Reached maximum number of turns (6)'`. The case declares `max_turns: 6`.
+One Opus 5.5 run of `cc-tool-schema-effort` failed 8 of its 13 graders at the same time. That run
+held `error: 'exit 1: Reached maximum number of turns (6)'`. Each case declares `max_turns: 6`.
 
-A run that ends on an error gives an empty reply. Each grader scores that empty reply, so the case
-reports a collapse that the skill did not cause.
+A run that ends at the turn limit gives an empty reply. The `evidence` field of each failed grader
+is then empty, so the case reports a collapse that the skill did not cause.
+
+The pattern of failures identifies the abort. An empty reply passes each `not_contains` grader and
+each grader that reads the trace. It fails every grader that reads the text.
 
 `evals/compare-runs.py` prints `[1 run(s) ended on an error]` for such a case. Read that line first.
 A bound that a case declares is a part of the case, so a change to a bound needs a decision from the user.
+
+The rate is low and it is not equal across the models. One run of 28 Opus 5.5 runs aborted.
+17 of those 28 runs reported 6 turns or more, against 2 of 31 on Haiku 5.5.
 
 ## Read the Reply before You Change the Skill
 
