@@ -722,3 +722,49 @@ works, in place of a reason to carry on after a refusal.
 `rewrite-linted` uses `type: tool_used` with `min: 2`. One Sonnet 5.5 run made one refused lint call
 and one accepted lint call, and the grader passed. The harness counts the call that the model sent,
 so a `min` of 2 stays reachable on a case whose first call gets a refusal.
+
+## The Byte Escape Measured
+
+The skill gained the byte-escape command at step 2. `invisible-space` then moved from 0 of 3 to 3
+of 3 on Sonnet 5.5, and to 2 of 3 on Haiku 5.5. Each of the six runs sent the `printf` form, and no
+run met a refusal. Four earlier edits of the same step asked the model to carry on after the
+refusal. Each one moved one or two runs of six.
+
+The same round fixed two more pairs on Haiku 5.5. `rule-table-on-request` went from 2 of 3 to 3 of
+3 after the skill stated that the mode line ends the reply with no line after it.
+`cc-system-prompt-permissions` went from 2 of 3 to 3 of 3 after the grader gained the shape of a
+kept compound tense.
+
+## A Second Command in the Call Loses the Permission
+
+One Haiku 5.5 run sent the lint and `echo "exit: $?"` in one `Bash` call. Claude Code denied the
+whole call, and the model wrote its reply with no lint at all. The run then failed `no-commentary`
+too, because the reply explained the denial.
+
+The `--allow-tools` pattern of the eval covers the linter call. A `$?` or a `$(...)` in the same
+command text takes the call outside that pattern, and Claude Code then denies the call. A plain
+`printf ... | ste-lint` passes, because the pipe still resolves to the allowed command.
+
+The skill now states that each lint is its own call, and that the call holds the linter command
+alone. The reason comes with it: the result already gives the findings and the exit code.
+
+## One Call That Holds Both Lints Counts as One Call
+
+Another Haiku 5.5 run sent the source lint, an `echo` marker, and the rewrite lint in one `Bash`
+call. Both lints ran, and the reply was correct. `rewrite-linted` still failed. `type: tool_used` counts
+the calls that the model sends, and the count was 1.
+
+The grader keeps `min: 2`, because the two calls happen at two times. The lint of the source informs
+the rewrite. A single call therefore means the model wrote the rewrite before it read the findings.
+The skill now states those two times in the process line.
+
+## A Kept As-Is Line Needs a Span
+
+Two runs on two cases wrote a `Kept as-is` line about the length of the whole text. One of them read
+"all sentences together: the field keeps every condition for setting it". The graders fail a reason
+that reports the writer's own work, and a cap belongs to that work.
+
+The output contract named that failure in a negative sentence, and the model still wrote the line.
+The positive form states what the field holds. The `<phrase>` is a span of the source that the
+rewrite keeps word for word, so a reader finds it in both texts. The whole text and its cap are no
+span, and they get no line.
