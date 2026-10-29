@@ -403,3 +403,37 @@ whole technique, and the grader reports the symptom only.
 The measurement of this change is open. The earlier state of the case was 0 of 3, and the cap failed
 in 3 of 3 runs. The state after the scope-split technique is 1 of 3, and the cap fails in 2 of 3
 runs.
+
+## A Denial Text Asks the Model to Explain
+
+Haiku 5.5 reported the refused lint in 2 of 3 runs of `invisible-space`, and the rewrite above the
+note was exact in all three. The output contract names each word of that note, and it gives the
+reason behind the ban. Neither stopped the note.
+
+The trace holds the cause. The denial of a tool call carries its own instruction, and it asks for a
+report: `STOP and explain to the user what you were trying to do and why you need this permission`.
+That line covers a capability that the model reads as essential.
+The skill called the lint step `never optional`, so the model read it that way and obeyed the denial.
+
+An instruction from the harness competes with the skill. Name it, and remove its condition. Step 2
+now states that `the reading check replaces a refused lint`, so the work stays complete.
+
+A refusal is not the only path through this case. In the one passing run, Haiku retyped the text and
+dropped U+200B, so the command held plain ASCII and the lint returned `0 findings`. The passing run
+of this case passes for the wrong reason, and only the trace shows that.
+
+## A Word Cap Needs Its Unit Named
+
+Sonnet 5.5 wrote the same 21-word sentence in `cc-tool-schema-effort` across three matrices. The
+trace of the failing run shows `ste-lint --max-words 25`, and the two passing runs show
+`--max-words 20`. The model linted the rewrite in each run, and the 25-word cap reported nothing.
+
+The mode rule holds both numbers: 20 words for an instruction and 25 for a description. The case is
+a field description of a tool, and each of its sentences gives an order. One text matched both
+units, so the choice of the cap decided the result.
+
+The Strict mode rule now names the mixed text. A description that holds an instruction takes both
+caps, and each sentence that gives an order takes 20 words.
+
+A cap without its unit is a coin flip. `rewrite-linted` with `min: 2` proved that the model linted
+the rewrite, which moved the question from a skipped step to the flag of the call.

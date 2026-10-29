@@ -77,11 +77,16 @@ compare before after:
     evals/compare-runs.py {{ before }} {{ after }}
 
 # Run one eval case on one model, for a fix. This makes paid model runs.
-eval-case model case:
+# --keep-temp holds the scaffold, so the tracePath of each run still exists and
+# shows every tool call. Without it the harness removes the trace, and the
+# evidence field of each llm grader is all that stays.
+eval-case model case runs="3":
+    mkdir -p {{ out }}
     CLAUDE_CODE_EFFORT_LEVEL={{ effort }} claude plugin eval . \
-      --model {{ model }} --judge-model {{ judge }} --runs 1 --ablation none \
+      --model {{ model }} --judge-model {{ judge }} --runs {{ runs }} --ablation none \
       --case {{ case }} -j {{ concurrency }} --max-cost-usd {{ max_cost }} \
-      --trust-plugin --no-publish --allow-tools "Bash($PWD/{{ lint }} *)"
+      --trust-plugin --no-publish --keep-temp --allow-tools "Bash($PWD/{{ lint }} *)" \
+      --json {{ out }}/{{ case }}-{{ model }}.json
 
 # Measure the trigger rate of the description. This makes paid model runs.
 # The weakest model of the matrix misses the most triggers, so it is the default here.
