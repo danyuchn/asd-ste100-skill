@@ -30,6 +30,15 @@ def grader_fails(case: dict) -> set[str]:
     return out
 
 
+def aborted(case: dict) -> int:
+    """The runs that ended on an error, such as the turn limit of the case.
+
+    Such a run scores every grader against an empty reply, so it reads as a
+    quality collapse. The caller prints it apart.
+    """
+    return sum(1 for run in case["arms"].get("with", []) if run.get("error"))
+
+
 def main() -> int:
     if len(sys.argv) != 3:
         print(__doc__, file=sys.stderr)
@@ -71,6 +80,9 @@ def main() -> int:
                 mark = "moved"
             still = sorted(grader_fails(case))
             tail = ("  fails: " + ", ".join(still)) if still else ""
+            n_bad = aborted(case)
+            if n_bad:
+                tail = f"  [{n_bad} run(s) ended on an error]" + tail
             print(f"  {name:<30} {mark:<5} {sb:.2f} -> {sa:.2f}{tail}")
         ab, aa = rb["aggregates"], ra["aggregates"]
         print(

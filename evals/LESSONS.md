@@ -24,6 +24,35 @@ Only a failure on more than one model, or a repeat on the same model, carries we
 
 Use `evals/compare-runs.py` for the shape of a change. Confirm each flip with `--runs 3` on the case.
 
+## A Single-Run Matrix Carries Two Cases of Noise
+
+Three full matrices ran with `--runs 1`. Haiku 5.5 passed 13, then 13, then 11 of the 17 cases.
+Sonnet 5.5 passed 16, then 13, then 16.
+
+The spread is about two cases for each model. A matrix shows the shape of a change.
+A flip of one case needs `--runs 3` on that case.
+
+## A Turn Limit Abort Reads as a Quality Collapse
+
+One Opus 5.5 run of `cc-system-prompt-permissions` failed 8 graders at the same time. That run held
+`error: 'exit 1: Reached maximum number of turns (6)'`. The case declares `max_turns: 6`.
+
+A run that ends on an error gives an empty reply. Each grader scores that empty reply, so the case
+reports a collapse that the skill did not cause.
+
+`evals/compare-runs.py` prints `[1 run(s) ended on an error]` for such a case. Read that line first.
+A bound that a case declares is a part of the case, so a change to a bound needs a decision from the user.
+
+## Read the Reply before You Change the Skill
+
+The `already-compliant` case fell to 0 of 3. Three fixes of the lead sentence followed, and each one
+scored the same or less. The cause sat in a different bullet of the same section.
+
+The JSON holds the reply. Each grader carries an `evidence` field with the text that the judge read.
+Read that field, find the words that failed, then change the line that governs those words.
+
+A fix from a guess can be the defect. Two fixes in this session broke a case that passed before.
+
 ## A Verbatim Example Can Replace the Rule It Illustrates
 
 `SKILL.md` held the line `"Retry if needed" keeps "if needed"`. That phrase is the source of the
@@ -148,6 +177,22 @@ It also appends text to a reply that must stay exact. The Claude 5.5 notes state
 Haiku sometimes writes reasoning-like text into the visible reply.
 
 A failure on Haiku alone is a format or a trigger finding. A failure on each model is a rule finding.
+
+## One Grader Judges One Concern
+
+Each `no-invented-fact` failure of one matrix came from a `Kept as-is:` line, not from the rewrite.
+That grader judged two concerns, so a correct rewrite failed because of a weak reason.
+
+Three of the seven graders already told the judge to ignore those lines. The other four now do the
+same, and a new `kept-as-is-reason` grader judges the lines alone.
+
+Opus 5.5 took `cc-system-prompt-permissions` from 0 of 3 to 3 of 3 at 1.00.
+The new grader then failed one Opus reply of `cc-tool-schema-effort`. Its reason read
+`explicitly: a request that is only implied does not count`. That reason states what the kept word
+excludes, so the defect sat in the grader. One clause about an exclusion fixed the grader, and the
+case scored 3 of 3 at 1.00.
+
+A grader that judges two concerns hides the concern that failed.
 
 ## A Grader Needs Examples from Its Own Source
 

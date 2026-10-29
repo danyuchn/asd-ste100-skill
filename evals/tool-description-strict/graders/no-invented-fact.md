@@ -7,5 +7,7 @@ Source: "This function is used to fetch the latest metrics from the monitoring b
 Pass only if the rewrite adds no fact, number, or behavior that the source does not state. An added cause, an added number, an added step, or an added condition fails.
 A reworded source fact, a split sentence, a new sentence order, and a named actor that the source names are not added facts.
 
+Ignore each line that starts with `Kept as-is:`. The `kept-as-is-reason` grader judges those lines.
+
 This reply passes: "This function gets the latest metrics from the monitoring backend. If the request reaches its timeout of 30 seconds, the function retries the request up to 3 times. Then it returns an error to the caller. The function does not retry if the config disables retries."
 This reply fails: "This function gets the latest metrics. If the request reaches its timeout of 30 seconds, the function retries the request up to 3 times. The function logs each retry."

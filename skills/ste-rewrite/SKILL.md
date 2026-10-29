@@ -49,6 +49,7 @@ Use the mode that the user names, or pick it from the text type.
 - Noun clusters of 3 words at most.
 - Full grammar: keep subjects, verbs, and articles, also when they add length.
 - One topic and at most 6 sentences per paragraph. A list for 3 or more steps or conditions.
+- One condition that governs several steps becomes the order of a numbered list. Make the action that follows the last step. A wrapper sentence such as "Do both steps first" repeats the steps.
 - Safety text starts with the command or the condition: "Warning: disconnect the power before you open the panel."
 
 ## Word Rules
@@ -86,7 +87,7 @@ Stop when each sentence has one reading. Length comes second. When the text stat
 Give the rewritten text and nothing else. The caller pastes the reply as it is.
 
 - Start the reply with the first word of the rewrite. The reply keeps the form of the source, so a rewritten tool description is a tool description. An opener such as "Here is", "What changed", or "I rewrote" belongs in no reply, and neither does a heading or a label.
-- End the reply with one line `Kept as-is: <phrase>: <the precision it keeps>` for each longer phrase and each character that you keep on purpose. Write the reason in STE style. A reason names the precision only.
+- End the reply with one line `Kept as-is: <phrase>: <the precision it keeps>` for each longer phrase and each character that you keep on purpose. Write the reason in STE style. A reason names the precision only, as in `Kept as-is: may have failed: the failure is not certain.` A conclusion such as "a changed call is permitted" adds a fact. A note on your own work, such as "the cap would drop a fact", adds a fact too.
 - The reply holds the rewrite and the `Kept as-is` lines. Your steps and your tools stay in your own work. The rule table below is the one place that names a rule. A direct question about the linter is its one place in the reply, because zero findings proves no compliance. The words `ste-lint` and "the linter" belong in no other reply.
 - A note on a removed word, a judgment, or an open question waits for a request. A request to disambiguate, simplify, or make plainer asks for the rewrite alone.
 
