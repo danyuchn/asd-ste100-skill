@@ -14,8 +14,11 @@ plugin := "asd-ste100"
 marketplace := "danyuchn/asd-ste100-skill"
 
 # The eval matrix. Each model runs at this effort, because CLAUDE_CODE_EFFORT_LEVEL
-# wins over --effort and the settings.
-effort := "medium"
+# wins over --effort and the settings. The catalog default of Haiku 5.5, Sonnet 5.5,
+# and Opus 5.5 is medium, and high is the level that users of Haiku 5.5 report. The
+# suite on Haiku 5.5 scored 0.935 at medium and 0.994 at high, and the high run cost
+# $2.26 against $2.47, because no run spent turns on a denied call or a retry.
+effort := "high"
 models := "claude-haiku-5-5 claude-sonnet-5-5 claude-opus-5-5"
 # Each run is a full claude child on one credential, so they share one rate limit.
 concurrency := "4"
