@@ -135,7 +135,7 @@ more reliably than it infers one from a principle.
 ## A Forbidden String Needs the Reason behind It
 
 The output contract named `ste-lint` and "the linter" as strings that no reply holds. Haiku 5.5 then
-wrote "the STE linter" and "Bash was denied" in its note about a refused tool call.
+wrote `the STE linter` and `Bash was denied` in its note about a refused tool call.
 
 The first fix added each missing string: "STE linter", `Bash`, "permission", and "denied". The
 `invisible-space` case went from 0 of 3 to 1 of 3, so Haiku wrote the note with the named words in
@@ -164,7 +164,7 @@ State one shape for one reply. Give a second shape its own sentence and its own 
 
 ## A New Rule Competes with the Cap, So State the Precedence
 
-Haiku 5.5 kept "the user is prompted" in all three runs of `cc-system-prompt-permissions`, and
+Haiku 5.5 kept `the user is prompted` in all three runs of `cc-system-prompt-permissions`, and
 `actor-named` failed 3 of 3. The skill licensed that form: it allowed the passive whenever the actor
 is unknown. The standard is stricter, because it allows the passive in descriptive text only.
 
@@ -273,6 +273,19 @@ mechanism as facts. `cc-tool-schema-model` went from 1 of 3 to 3 of 3 at 1.00 on
 
 A rule of style that names no bad shape is advice. A rule that quotes the bad shape is a bound.
 
+## A Passing Run of a Weaker Model Holds the Technique
+
+`cc-tool-schema-effort` failed `word-cap-20` in 3 of 3 Sonnet 5.5 runs. Each run wrote the same
+21-word sentence, one word over the cap of 20. The sentence held one instruction and one condition,
+so the one-action rule gave it no room to shrink.
+
+Haiku 5.5 passed the same case 3 of 3 at 1.00 in the same round. Its replies hold the technique.
+It moved the scope of the condition into a sentence of its own. That sentence reads `The request
+covers this agent or delegated work.` The skill now states the technique.
+
+A model that passes a case shows a shape that satisfies every grader at once. Read that reply before
+you invent a rule, because the suite already holds the answer.
+
 ## A Grader Needs Examples from Its Own Source
 
 Four `one-action-per-sentence` graders shared one pass example. Two of them named fields that their
@@ -340,3 +353,53 @@ run count, because its misses spread over many cases.
 A strict rule also separates a defect from noise at a glance. A grader that fails 3 of 3 runs is
 deterministic. The matrix found two: `actor-named` on `cc-system-prompt-permissions`, and
 `one-instruction-per-sentence` on `invisible-space`. Both belonged to Haiku 5.5, and a one-run matrix hid the cause of each one.
+
+## A Grader of a Word List Needs Each Spelling
+
+The `no-commentary` grader is a regex, and its pattern named `ste-lint` and `the linter`. Haiku 5.5
+wrote `the STE linter` in run 0 of `invisible-space`, and the grader passed that reply. Run 2 of the
+same case wrote `the linter` and failed.
+
+One case reported one habit as two results, and the spelling alone made the difference. The pattern
+now holds `ste.?lint` and `\blinter\b`, which cover `the linter`, `the STE linter`, and `0 linter
+findings`. It also holds `bash`, `permission`, and `denied`, which are the other words of the output
+contract.
+
+A word list of a grader excludes the words of its own source. The source of
+`cc-system-prompt-permissions` names `permission` and `denied`, so that case keeps the short
+pattern. The source of `rule-table-on-request` asks for a rule table, and a table can gloss `may` as
+permission, so that case drops `permission` alone.
+
+Test a new pattern against the replies that you already have. Each `llm` grader of the stored JSON
+holds the reply in its `evidence` field, and a `regex` grader holds nothing. A scan of every stored
+run found the same gap in `rule-table-on-request`, `tool-description-strict`, and
+`lookalike-identifier`. It also showed that the one affected run of the confirming matrix already
+failed four other graders, so the matrix counts stand.
+
+## A Tool Grader Passes on One Attempt
+
+`linter-ran` is a `tool_used` grader. It passes when the run attempts one matching call, and a
+denied call is an attempt. Haiku 5.5 passed `linter-ran` in the same run that reported a refusal.
+
+The grader therefore measures step 2 of the process. It measures no lint of the rewrite at step 4.
+`tool_used` takes `min` and `max`, and `min` is 1 by default, per the docs of Claude Code 2.1.312.
+`cc-tool-schema-effort` now holds a second grader, `rewrite-linted`, with `min: 2`.
+
+`claude plugin validate` reads no grader key. A grader file with `bogus_key: 1` passed validation,
+so a run is the one way to confirm that the harness reads `min`.
+
+## An Instruction Word with Two Readings Stops the Technique
+
+Step 4 held two techniques for the word cap, and each one started with "When the condition alone
+passes the cap". "Passes" reads as "satisfies the cap" and as "goes over the cap". Sonnet 5.5 then
+wrote a 21-word sentence in `cc-tool-schema-effort` in 2 of 3 runs, and it used neither technique.
+
+The word rules of this skill name the fix. Use the plainest word with one meaning, because "follow"
+can also mean "come after". "Goes over the cap" has one reading, and the step now reads that way.
+
+Read each instruction of the skill as a model reads it. An ambiguous verb in a technique costs the
+whole technique, and the grader reports the symptom only.
+
+The measurement of this change is open. The earlier state of the case was 0 of 3, and the cap failed
+in 3 of 3 runs. The state after the scope-split technique is 1 of 3, and the cap fails in 2 of 3
+runs.
