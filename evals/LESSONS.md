@@ -768,3 +768,28 @@ The output contract named that failure in a negative sentence, and the model sti
 The positive form states what the field holds. The `<phrase>` is a span of the source that the
 rewrite keeps word for word, so a reader finds it in both texts. The whole text and its cap are no
 span, and they get no line.
+
+## One Call for Each Lint, Measured
+
+The skill gained the rule that each lint is its own `Bash` call with the linter command alone.
+`invisible-space` on Haiku 5.5 then went from 2 of 3 to 3 of 3, and `tool-description-strict` went
+from 2 of 3 to 3 of 3. Each run of both cases made two calls, and no call met a denial.
+
+## A Kept As-Is Line for a Phrase That No Rule Touches
+
+`cc-tool-schema-effort` on Haiku 5.5 still fails one run of three, and the judge votes 3-0 against
+it. The reply holds two lines:
+
+```
+Kept as-is: explicit request: the user or instruction must ask for a level, not the agent itself.
+Kept as-is: such as CLAUDE.md or a skill: the examples are open, so other instruction sources also count.
+```
+
+No rule of the skill touches either phrase. The rewrite keeps both of them because the meaning needs
+them, which is true of most of the text. The second line then adds a permission that the source
+leaves out, in the shape of the grader's own failing example.
+
+The output contract asks for a line for "each longer phrase and each character that you keep on
+purpose". The model reads "on purpose" as any phrase that it chose to keep. The test that the
+contract needs is the rule. A line belongs to a phrase that a rule would change, because the reason
+states the precision that the change would lose. A phrase that no rule touches needs no line.
