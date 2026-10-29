@@ -1,0 +1,140 @@
+#!/usr/bin/env python3
+"""Lint Markdown or plain text for the structural STE rules.
+
+Usage:
+    ste-lint [--json] [--baseline N] [--disable RULES] [--max-words N] [FILE ...]
+    ste-lint <<'EOF' ... EOF
+
+Output: one line for each finding, "file:line:col: rule: message [match]", then
+a summary line. Hedges and modality (may, might, could) are never flagged.
+Exit 0 pass, 1 hard findings over the baseline, 2 usage error.
+Advisory findings never fail the run.
+"""
+import argparse
+import json
+import os
+import sys
+
+sys.dont_write_bytecode = True  # keep __pycache__ out of an installed skill
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from ste_rules import ADVISORY_IDS, HARD, HARD_IDS, RULE_IDS, lint  # noqa: E402  (needs the path above)
+
+PROGRAM = "ste-lint"
+STDIN_PATH = "-"
+STDIN_NAME = "<stdin>"
+ENCODING = "utf-8-sig"  # strips a byte order mark, which would shift column 1
+SEPARATOR = ","
+DEFAULT_BASELINE = 0
+DEFAULT_MAX_WORDS = 25
+DEFAULT_LIMIT = 50
+MIN_WORD_CAP = 1
+MIN_COUNT = 0
+JSON_INDENT = 2
+EXIT_PASS = 0
+EXIT_FAIL = 1
+EXIT_USAGE = 2  # argparse.error() exits 2; this name only documents it
+
+DESCRIPTION = ("Lint text for structural STE rules. Reads stdin when no FILE is given "
+               f"or for {STDIN_PATH}.")
+EPILOG = f"""examples:
+  {PROGRAM} README.md
+  {PROGRAM} --max-words 20 <<'EOF' ... EOF
+  {PROGRAM} --json --baseline 5 docs/*.md
+
+rules (hard fail the run, advisory never do):
+  hard:     {", ".join(HARD_IDS)}
+  advisory: {", ".join(ADVISORY_IDS)}
+
+exit codes:
+  {EXIT_PASS}  pass
+  {EXIT_FAIL}  hard findings over the baseline
+  {EXIT_USAGE}  usage error (bad flag or value, unknown rule, unreadable file)
+"""
+
+
+def rule_list(value):
+    """Parse --disable. argparse turns the error into exit 2."""
+    rules = {name.strip() for name in value.split(SEPARATOR) if name.strip()}
+    unknown = rules - set(RULE_IDS)
+    if unknown:
+        raise argparse.ArgumentTypeError(
+            f"unknown rule(s): {SEPARATOR.join(sorted(unknown))}. "
+            f"Known rules: {SEPARATOR.join(RULE_IDS)}")
+    return rules
+
+
+def at_least(minimum):
+    def parse(value):
+        try:
+            number = int(value)
+        except ValueError:
+            number = None
+        if number is None or number < minimum:
+            raise argparse.ArgumentTypeError(
+                f"expected an integer >= {minimum}, got {value!r}")
+        return number
+    return parse
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(
+        prog=PROGRAM, allow_abbrev=False, description=DESCRIPTION, epilog=EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("paths", nargs="*", metavar="FILE")
+    parser.add_argument("--json", action="store_true", help="print findings as JSON")
+    parser.add_argument("--baseline", type=at_least(MIN_COUNT), default=DEFAULT_BASELINE, metavar="N",
+                        help=f"fail only when hard findings exceed N (default {DEFAULT_BASELINE})")
+    parser.add_argument("--disable", type=rule_list, default=set(), metavar="RULES",
+                        help="comma-separated rule IDs to drop")
+    parser.add_argument("--max-words", type=at_least(MIN_WORD_CAP), default=DEFAULT_MAX_WORDS,
+                        metavar="N", help=f"sentence word cap (default {DEFAULT_MAX_WORDS})")
+    parser.add_argument("--limit", type=at_least(MIN_COUNT), default=DEFAULT_LIMIT, metavar="N",
+                        help="text output: show the first N findings, 0 for all "
+                             f"(default {DEFAULT_LIMIT})")
+    return parser
+
+
+def read(path, parser):
+    """Return the text of one path. A read error ends the run with exit 2."""
+    try:
+        if path == STDIN_PATH:
+            return sys.stdin.buffer.read().decode(ENCODING)
+        with open(path, encoding=ENCODING) as handle:
+            return handle.read()
+    except (OSError, ValueError) as error:
+        parser.error(f"cannot read {display(path)}: "
+                     f"{getattr(error, 'strerror', None) or error}")
+
+
+def display(path):
+    return STDIN_NAME if path == STDIN_PATH else path
+
+
+def main(argv=None):
+    parser = build_parser()
+    args = parser.parse_intermixed_args(argv)
+
+    findings = []
+    for path in args.paths or [STDIN_PATH]:
+        text = read(path, parser)
+        findings += [item for item in lint(text, display(path), args.max_words)
+                     if item["rule"] not in args.disable]
+    hard = sum(item["level"] == HARD for item in findings)
+
+    if args.json:
+        print(json.dumps({"findings": findings, "hard": hard, "baseline": args.baseline},
+                         indent=JSON_INDENT))
+    else:
+        shown = findings[:args.limit] if args.limit else findings
+        for item in shown:
+            print("{file}:{line}:{col}: {rule}: {message} [{match}]".format(**item))
+        hidden = len(findings) - len(shown)
+        print(f"{len(findings)} findings ({hard} hard, {len(findings) - hard} advisory, "
+              f"baseline {args.baseline})"
+              + (f", {hidden} not shown (use --limit 0 or --json)" if hidden else ""))
+    return EXIT_FAIL if hard > args.baseline else EXIT_PASS
+
+
+if __name__ == "__main__":
+    sys.exit(main())
