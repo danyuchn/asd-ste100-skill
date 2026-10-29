@@ -708,6 +708,14 @@ def selftest():
         with contextlib.redirect_stdout(out):
             assert main([paths[0], "--json", paths[1]]) == 0
         assert json.loads(out.getvalue())["words"] == 6, out.getvalue()
+        # repeated --disable flags add up instead of replacing each other
+        with open(paths[0], "w", encoding="utf-8") as fh:
+            fh.write("a; b. " + " ".join(["word"] * 30) + ".\n")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert main([paths[0], "--json", "--disable", "semicolon",
+                         "--disable", "long-sentence"]) == 0
+        assert json.loads(out.getvalue())["count"] == 0, out.getvalue()
     # command-line parsing rejects typos and bad values
     for bad in (["--basline", "3"], ["--baseline"], ["--baseline", "x"],
                 ["--baseline", "-1"], ["--disable", "passive"], ["--base", "3"]):
@@ -755,15 +763,17 @@ def main(argv):
     parser.add_argument("--json", action="store_true", help="print findings as JSON")
     parser.add_argument("--baseline", type=_non_negative_int, default=0, metavar="N",
                         help="pass unless hard violations exceed N (default 0)")
-    parser.add_argument("--disable", type=_rule_list, default=set(), metavar="RULES",
-                        help="comma-separated rule IDs to silence")
+    parser.add_argument("--disable", type=_rule_list, action="append", default=[],
+                        metavar="RULES",
+                        help="comma-separated rule IDs to silence; may be repeated")
     parser.add_argument("--selftest", action="store_true", help="run the built-in tests")
     # intermixed parsing keeps flags valid between file paths
     args = parser.parse_intermixed_args(argv)
     if args.selftest:
         selftest()
         return 0
-    as_json, baseline, disabled, paths = args.json, args.baseline, args.disable, args.paths
+    as_json, baseline, paths = args.json, args.baseline, args.paths
+    disabled = set().union(*args.disable)
 
     findings, words_total = [], 0
     if paths:
