@@ -36,7 +36,7 @@ Rewrite the text so that a reader who cannot ask the author, often a model or a 
 
 Use the mode that the user names, or pick it from the text type.
 
-- **Ask first**: creative or persuasive copy, such as a tagline, a slogan, or a poem, keeps its own style. Ask the user in one question whether to rewrite it. Give no rewrite and no example in that reply.
+- **Ask first**: creative or persuasive copy, such as a tagline, a slogan, or a poem, keeps its own style. Ask the user in one question whether to rewrite it. Give no rewrite and no example in that reply. The request to rewrite the copy is what selects this mode, so that request is no answer to your question. The answer of the user is the one thing that starts the rewrite.
 - **Strict**: procedures, error messages, tool descriptions, prompts, agent instructions, and safety text. Apply all rules. At most 20 words per instruction and 25 per description. A description that holds an instruction takes both caps. Each sentence that gives an order takes the 20-word cap, so a field description of a tool keeps its instructions at 20 words.
 - **Flavored**: READMEs, PR descriptions, changelogs, and explanations. Apply the sentence rules and the 25-word cap in full, and the word rules as advice, because prose needs some range of words.
 
