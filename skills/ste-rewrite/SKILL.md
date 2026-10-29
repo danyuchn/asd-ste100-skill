@@ -117,6 +117,8 @@ The text already follows the rules.
 
 A file stays as it is. Add no step, condition, or check to a text that follows the rules, also when you can make the text more exact. The rules fix form only, so questions about the content wait until the user asks.
 
+That one line answers a request to disambiguate, because each sentence of the source already has one reading. An open point of the content, a list of such points, and an offer to add detail each wait for a request. A path, a name, and a value each belong to the content.
+
 When the user asks for the reasoning ("show the diff", "which rules", "explain", "before and after"), give this table in place of the text. Name only a rule that this file or `references/writing-rules.md` states, because the approved-word dictionary is outside this skill. Then give one line with the reason for each phrase kept longer. The mode line ends the reply. Each `Kept as-is` reason comes before it:
 
 ```markdown

@@ -557,7 +557,7 @@ shape that a model copies, and prose is a line that it reads.
 The order of the levers on this case was prose, then a reason, then a count, then a block. Each one
 moved one or two runs of six.
 
-## A Colon Line Is a Lead-In Too
+## A Colon Line Is a Lead-in Too
 
 The condition rule asked for no sentence above the list. Haiku 5.5 then wrote `Before you start the
 job:` above the list in 2 of 3 runs, which is a fragment and not a sentence.
@@ -612,3 +612,35 @@ standard for one concern.
 The same matrix gave the two shapes that fail. A reason that names a rule of the writer fails, as in
 `gives no subject to recast it to`. A reason that names an actor fails, as in `the default subagent
 model is set by the user`, because the source names no actor.
+
+## A Compliant Text Still Invites an Answer to the Request
+
+The `already-compliant` prompt asks the model to disambiguate an instruction that already follows
+the rules. Haiku 5.5 wrote the one exact line in 3 of 3 runs. In 2 of 3 runs it added a list of open
+points of the content. It asked which `config.yaml`, and whether `timeout` sits at one level.
+
+The three graders of that case are deterministic, so the JSON held no reply. The trace held each
+one, and `--keep-temp` was the only way to read them.
+
+The open points are real, and the skill fixes form. The model added them because the one line reads
+as no answer to a request to disambiguate.
+
+The output section now closes that gap. The one line answers the request, because each sentence of
+the source already has one reading. A path, a name, and a value belong to the content, and each open
+point waits for a request.
+
+A model fills a gap between the request and the reply. Name the reply as the answer, and the gap
+closes.
+
+## A Judge Needs the Long Form of an Allowed Shape
+
+`one-action-per-sentence` allows one verb with two objects. Its example is `it overrides the
+frontmatter and the default`. Haiku 5.5 wrote a longer form of that shape. Its sentence
+was `The override takes precedence over the model in the agent definition frontmatter and over the
+configured default subagent model.`
+
+Two of three votes failed it. The shape is the same, and the sentence repeats the preposition, which
+reads as two phrases. The four graders of this shape now hold the long form as a passing example.
+
+An example at its shortest leaves the long form open. Give the shape at the length that the source
+produces.

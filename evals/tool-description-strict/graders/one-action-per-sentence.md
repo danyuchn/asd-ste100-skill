@@ -8,6 +8,7 @@ Pass only if each sentence of the rewrite states one instruction or action, with
 A sentence with a single condition, a split sentence, and a rewrite with more sentences than the source are not failures.
 These three forms each count as one action, because they state one event about one subject:
 - One verb with two objects: "the function fetches the metrics and the timestamps" passes.
+- One verb with two objects that each repeat the preposition: "it takes precedence over the frontmatter and over the default" passes.
 - Two alternative verbs with one object and one subject: "the function retries or abandons the request" passes.
 - Two alternative subjects with one verb: "the timeout or the config stops the retries" passes.
 A sentence fails when it joins two clauses that have different subjects or different events, such as "the request reaches its timeout and the function retries it".

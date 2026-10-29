@@ -8,6 +8,7 @@ Pass only if each sentence of the rewrite states one instruction or action, with
 A sentence with a single condition, a split sentence, and a rewrite with more sentences than the source are not failures.
 These three forms each count as one action, because they state one event about one subject:
 - One verb with two objects: "it overrides the frontmatter and the default" passes.
+- One verb with two objects that each repeat the preposition: "it takes precedence over the frontmatter and over the default" passes.
 - Two alternative verbs with one object and one subject: "the agent inherits or overrides the parent model" passes.
 - Two alternative subjects with one verb: "the frontmatter or the default supplies the model" passes.
 A sentence fails when it joins two clauses that have different subjects or different events, such as "you omit the override and the agent uses the model of its definition".
