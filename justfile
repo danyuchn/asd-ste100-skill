@@ -13,12 +13,15 @@ rules_baseline := "1"
 plugin := "asd-ste100"
 marketplace := "danyuchn/asd-ste100-skill"
 
-# The eval matrix. Each model runs at this effort, because CLAUDE_CODE_EFFORT_LEVEL
-# wins over --effort and the settings. The catalog default of Haiku 5.5, Sonnet 5.5,
-# and Opus 5.5 is medium, and high is the level that users of Haiku 5.5 report. The
-# suite on Haiku 5.5 scored 0.935 at medium and 0.994 at high, and the high run cost
-# $2.26 against $2.47, because no run spent turns on a denied call or a retry.
-effort := "high"
+# Each model of the matrix runs at its own effort, because CLAUDE_CODE_EFFORT_LEVEL
+# wins over --effort and the settings. Sonnet 5.5 and Opus 5.5 run at medium, the
+# catalog default of both. Haiku 5.5 runs at high, the level that its users report.
+# The suite on Haiku 5.5 scored 0.935 at medium and 0.994 at high, and the high run
+# cost $2.26 against $2.47, because no run spent turns on a denied call or a retry.
+# Each recipe below reads the level for one model from these two values.
+effort := "medium"
+haiku := "claude-haiku-5-5"
+haiku_effort := "high"
 models := "claude-haiku-5-5 claude-sonnet-5-5 claude-opus-5-5"
 # Each run is a full claude child on one credential, so they share one rate limit.
 concurrency := "4"
@@ -65,11 +68,12 @@ validate:
 # Run the eval cases on one model. This makes paid model runs.
 eval model runs="1" ablation="none":
     mkdir -p {{ out }}
-    CLAUDE_CODE_EFFORT_LEVEL={{ effort }} claude plugin eval . \
+    eff=$(test "{{ model }}" = "{{ haiku }}" && echo {{ haiku_effort }} || echo {{ effort }}); \
+    CLAUDE_CODE_EFFORT_LEVEL="$eff" claude plugin eval . \
       --model {{ model }} --judge-model {{ judge }} --runs {{ runs }} \
       --ablation {{ ablation }} -j {{ concurrency }} --max-cost-usd {{ max_cost }} \
       --trust-plugin --no-publish --allow-tools "Bash($PWD/{{ lint }} *)" \
-      --json {{ out }}/{{ model }}-{{ effort }}.json
+      --json {{ out }}/{{ model }}-"$eff".json
 
 # Run the eval cases on each model of the matrix. This makes paid model runs.
 eval-matrix runs="1":
@@ -85,7 +89,8 @@ compare before after:
 # evidence field of each llm grader is all that stays.
 eval-case model case runs="3":
     mkdir -p {{ out }}
-    CLAUDE_CODE_EFFORT_LEVEL={{ effort }} claude plugin eval . \
+    eff=$(test "{{ model }}" = "{{ haiku }}" && echo {{ haiku_effort }} || echo {{ effort }}); \
+    CLAUDE_CODE_EFFORT_LEVEL="$eff" claude plugin eval . \
       --model {{ model }} --judge-model {{ judge }} --runs {{ runs }} --ablation none \
       --case {{ case }} -j {{ concurrency }} --max-cost-usd {{ max_cost }} \
       --trust-plugin --no-publish --keep-temp --allow-tools "Bash($PWD/{{ lint }} *)" \
@@ -100,7 +105,8 @@ triggers rounds="3" set="validation" model="claude-haiku-5-5":
 # One eval pass samples the skill choice once per case, which is too few to judge
 # a description, and this samples the choice alone at the effort of the matrix.
 fire-rate rounds="3" model="claude-haiku-5-5" case="":
-    CLAUDE_CODE_EFFORT_LEVEL={{ effort }} evals/fire-rate.sh {{ rounds }} {{ model }} {{ case }}
+    eff=$(test "{{ model }}" = "{{ haiku }}" && echo {{ haiku_effort }} || echo {{ effort }}); \
+    CLAUDE_CODE_EFFORT_LEVEL="$eff" evals/fire-rate.sh {{ rounds }} {{ model }} {{ case }}
 
 # Install the plugin from the marketplace.
 install:
