@@ -34,9 +34,11 @@ IRREGULAR_PARTICIPLES = "given|taken|made|done|found|seen|known|shown|written|bu
 
 # Preserve the original passive heuristic; perfects also include intransitive verbs.
 PASSIVE_PARTICIPLES = "given|taken|made|done|found|seen|known|shown|written|built|sent|set|run|read|kept|held|left|put"
+# Up to two words may stand between the modal and "have": "may not",
+# "might already", "could not possibly".
 MODAL_PERFECT_PREFIX = re.compile(
-    r"\b(?:may|might|could|should|would|must|can|will|shall)"
-    r"(?:\s+not|n['’]t)?\s+$", re.I,
+    r"\b(?:may|might|could|should|would|must|can|will|shall)(?:n['’]t)?"
+    r"(?:\s+(?:not|already|also|ever|even|just|never|still|\w+ly)){0,2}\s+$", re.I,
 )
 
 RULES = [
@@ -484,6 +486,12 @@ def selftest():
             assert not any(f["rule"] == "present-perfect" for f in findings), findings
     findings, _ = lint("The task couldn't have run. The task MAY NOT HAVE RUN.")
     assert not any(f["rule"] == "present-perfect" for f in findings), findings
+    findings, _ = lint("It might already have finished. It could not possibly have run. "
+                       "It may never have started. It should probably have stopped.")
+    assert not any(f["rule"] == "present-perfect" for f in findings), findings
+    # an adverb without a modal is not a hedge
+    findings, _ = lint("The task already has run. They probably have finished.")
+    assert sum(f["rule"] == "present-perfect" for f in findings) == 2, findings
     findings, _ = lint("The task has run. We have begun. The flag is set.")
     assert sum(f["rule"] == "present-perfect" for f in findings) == 2, findings
     assert any(f["rule"] == "passive-voice" for f in findings), findings
