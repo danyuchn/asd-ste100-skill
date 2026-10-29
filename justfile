@@ -49,7 +49,7 @@ lint-one +args:
 
 # Type check the scripts and the tests. ste-lint has no .py name, so it needs its own path.
 types:
-    MYPYPATH={{ scripts }} uvx zuban@latest check {{ scripts }} {{ lint }} tests
+    MYPYPATH={{ scripts }} uvx zuban@latest check {{ scripts }} {{ lint }} tests evals/compare-runs.py
 
 # Check the manifests and the layout.
 validate:
@@ -66,6 +66,10 @@ eval model runs="1" ablation="none":
 # Run the eval cases on each model of the matrix. This makes paid model runs.
 eval-matrix:
     for model in {{ models }}; do just eval "$model"; done
+
+# Compare two eval runs case by case. Pass two directories of --json files.
+compare before after:
+    evals/compare-runs.py {{ before }} {{ after }}
 
 # Run one eval case on one model, for a fix. This makes paid model runs.
 eval-case model case:

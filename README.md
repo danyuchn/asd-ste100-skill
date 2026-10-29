@@ -76,6 +76,7 @@ The skill picks a mode from the text type. Strict covers procedures, error messa
 | `skills/ste-rewrite/scripts/ste_*.py` | The parts of the linter: `ste_rules` the rules, `ste_words` the word lists, `ste_blocks` the document structure, `ste_tables` the tables, `ste_text` the sentences and the masking. |
 | `evals/` | Cases for `claude plugin eval` and trigger queries for the skill description. Not loaded at run time. |
 | `evals/SOURCES.md` | The source of each eval input that comes from captured Claude Code prompt text. |
+| `evals/compare-runs.py` | Compares two eval runs case by case, and marks each case that a change fixed or broke. |
 | `tests/` | Unit tests for the linter. |
 | `justfile` | The commands of the repo: the checks, the eval matrix, and the install. `just --list` prints them. |
 
@@ -125,6 +126,7 @@ just validate       # check the manifests and the layout
 just eval MODEL     # the eval cases on one model: paid model runs
 just eval-matrix    # the eval cases on each model of the matrix: paid model runs
 just eval-case MODEL CASE   # one eval case on one model: paid model runs
+just compare BEFORE AFTER   # compare two eval runs case by case
 just triggers 3 validation  # the trigger rate of the description: paid model runs
 just fire-rate 3    # how often the skill fires on the eval prompts: paid model runs
 just install        # install the plugin from the marketplace
