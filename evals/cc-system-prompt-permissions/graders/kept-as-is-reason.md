@@ -13,6 +13,8 @@ A reason can state what the kept word excludes, because the exclusion is the pre
 
 A reason can state the actor that the source leaves out of a kept passive, because that absence is what the phrase carries. "is ignored: the source names no actor that ignores the field." passes.
 
+A reason can state the current relevance that a kept compound tense carries, because that relevance is why the tense stays. "has denied: the denial still applies when you adjust your approach." passes.
+
 A kept character, a kept letter case, and a kept punctuation mark each carry a form. A reason for one of them states what the form carries, such as emphasis, and it passes.
 
 These reasons pass:

@@ -27,6 +27,11 @@ class RuleTests(unittest.TestCase):
         self.assertEqual(rules("Run `make all` then spin up the node.", "phrasal-verb")[0]["col"], 21)
         self.assertTrue(has("A robust and game-changing tool.", "marketing-adjective"))
 
+    def test_time_out_is_phrasal_and_timeout_is_not(self):
+        for text in ("The request times out.", "The call timed out.", "It is timing out."):
+            self.assertTrue(has(text, "phrasal-verb"), text)
+        self.assertFalse(has("The timeout is 30 seconds. It ran 3 times.", "phrasal-verb"))
+
     def test_semicolon_positive_and_position(self):
         f = rules("a\nb; c", "semicolon")[0]
         self.assertEqual((f["line"], f["col"]), (2, 2))

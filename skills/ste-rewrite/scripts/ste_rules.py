@@ -38,7 +38,7 @@ INVISIBLE_CHARACTER = "invisible-character"
 MIXED_SCRIPT = "mixed-script-word"
 
 SEMICOLON_MESSAGE = "Split it into two sentences."
-PHRASAL_VERB_MESSAGE = "Use one plain verb (start, contact, read, begin)."
+PHRASAL_VERB_MESSAGE = "Use one plain verb (start, contact, read, begin, expire)."
 MARKETING_ADJECTIVE_MESSAGE = "Delete it, or give the measurement."
 NOMINALIZATION_MESSAGE = "Use the verb (analyze, not perform an analysis)."
 PASSIVE_VOICE_MESSAGE = "Name the actor. Use an active verb."

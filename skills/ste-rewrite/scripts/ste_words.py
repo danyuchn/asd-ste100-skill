@@ -61,6 +61,7 @@ NOMINAL_ADJECTIVES = "full complete final initial manual quick new detailed thor
 
 # Soft phrasal verbs. One plain verb says the same (Rule 9.3).
 PHRASAL_VERBS = (r"spin(?:ning|s)? up", r"spun up", r"reach(?:ing|es|ed)? out",
+                 r"tim(?:e|es|ing|ed) out",
                  r"div(?:e|es|ing|ed) into", r"dove into", r"kick(?:ing|s|ed)? off",
                  r"circl(?:e|es|ing|ed) back", r"touch(?:ing|es|ed)? base")
 
