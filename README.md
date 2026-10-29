@@ -69,7 +69,7 @@ The skill picks a mode from the text type. Strict covers procedures, error messa
 
 | Path | Content |
 | --- | --- |
-| `skills/ste-rewrite/SKILL.md` | The skill: rules, process, output format, and examples. Claude loads it when a request matches its description. |
+| `skills/ste-rewrite/SKILL.md` | The skill: rules, process, output format, and examples. Claude loads it when a request matches its `description` or its `when_to_use`. |
 | `skills/ste-rewrite/references/examples.md` | Eight examples with their mode and the reason for each change. Claude reads the file only for a tool description or Flavored prose. |
 | `skills/ste-rewrite/references/writing-rules.md` | The rule summary and its citations. Claude reads the file on request. |
 | `skills/ste-rewrite/scripts/ste-lint` | The command line of the linter. The skill runs it by its path in the installed plugin, with no permission prompt. |
@@ -135,6 +135,10 @@ just install        # install the plugin from the marketplace
 `claude plugin eval` runs each case in `evals/<case>/` and scores the graders. It exits 1 when a case scores below `--threshold` (default 1.0), and `--no-publish` keeps the HTML report local. `just eval` passes `--ablation none`, which runs the plugin arm only and halves the paid runs. It also passes `--max-cost-usd`, which stops one model at its ceiling, and `--judge-model claude-sonnet-5-5`: the default judge is Haiku, and it voted against correct answers.
 
 `--ablation with-without` runs each case twice, with the plugin and without it, and reports the delta. It is the default of the command whenever a plugin resolves. `just eval-matrix` runs the suite on Haiku 5.5, Sonnet 5.5, and Opus 5.5, because a skill must work on each model that reads it. `evals/trigger-queries.sh` runs each query in `evals/trigger-queries.json` and prints how often the skill triggered. It takes the rounds, the split, and the model. `just triggers` passes Haiku 5.5, because the weakest model of the matrix misses the most triggers. Change the description with the `train` queries, and judge the change with the `validation` queries, as the [Agent Skills guide](https://agentskills.io/skill-creation/optimizing-descriptions) recommends.
+
+Two different caps limit the trigger text, so the skill splits it across two keys. The plugin directory accepts a `description` of at most 200 characters, and `claude plugin validate` reports a longer one. Claude Code instead caps `description` and `when_to_use` together at 1,536 characters for one entry (`skillListingMaxDescChars`). The `description` therefore stays under 200 characters for the catalog, and `when_to_use` carries the rest of the trigger text. The two together come to 842 characters.
+
+One further limit applies at run time. The whole skill listing gets 1 percent of the context window, counted at 3 characters per token for the 5.5 models. An Opus 5.5 session with a 200,000-token window gives about 6,000 characters to every installed skill together. When the listing passes that budget, Claude Code drops the descriptions and keeps only the names. This entry uses about 14 percent of that budget, so a long `when_to_use` costs a user who installs many skills. The trigger scripts pass `--setting-sources project`, which lists this skill alone, so a measured trigger rate does not cover this risk.
 
 `evals/fire-rate.sh` prints how often the skill fired on each eval prompt. It takes the rounds, the model, and one case name. An eval pass samples the skill choice once per case, and it pays a judge for each grader. This script samples the choice alone, so a description change gets more samples for a small part of the price. The choice of a skill varies from run to run. Two descriptions that share a clause gave 3 of 3 and 0 of 3 on one query, so one sample decides nothing.
 
