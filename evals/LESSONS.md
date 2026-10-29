@@ -80,10 +80,31 @@ the source."
 
 The `already-compliant` case needs a reply of one exact line, so any opener fails its `exact-reply`
 grader. Without the list the case scored 0 of 3 on Haiku 5.5. The list returned as the only change,
-and the case scored 2 of 3.
+and the case scored 2 of 3, then 1.00 in the next matrix.
+
+A second case repeats the result. The `no-commentary` grader of `rule-table-on-request` rejects the
+strings `ste-lint` and "the linter". The output contract stated the principle, and Haiku 5.5 scored
+2 of 3. One sentence named both strings, and the case scored 3 of 3.
+
+Naming a string carries a risk, because a prompt that holds a word can prompt the word. Neither
+case showed that effect. Both cases improved.
 
 Keep the positive instruction first. Then name the exact strings, because a model matches a string
 more reliably than it infers one from a principle.
+
+## An Alternative in a Format Rule Reads as Permission
+
+A format rule with "or" offers a second shape. A model then picks the easier shape, so the first
+shape stops arriving. This happened twice in one session.
+
+The output contract read "Give the rewrite and nothing else, or one of the exact replies that this
+file names". The `already-compliant` case scored 3 of 6 on Haiku 5.5 under that wording.
+
+The rule-table section read "The reply ends with the mode line, or with the last `Kept as-is`
+reason". Haiku 5.5 then dropped the mode line, and the `mode-line` grader failed where
+`no-commentary` failed before. One wording swapped one failure for another.
+
+State one shape for one reply. Give a second shape its own sentence and its own condition.
 
 ## Two Caps Limit the Trigger Text
 

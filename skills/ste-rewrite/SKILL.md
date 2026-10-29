@@ -87,7 +87,7 @@ Give the rewritten text and nothing else. The caller pastes the reply as it is.
 
 - Start the reply with the first word of the rewrite. The reply keeps the form of the source, so a rewritten tool description is a tool description. An opener such as "Here is", "What changed", or "I rewrote" belongs in no reply, and neither does a heading or a label.
 - End the reply with one line `Kept as-is: <phrase>: <the precision it keeps>` for each longer phrase and each character that you keep on purpose. Write the reason in STE style. A reason names the precision only.
-- The reply holds the rewrite and the `Kept as-is` lines. Your steps and your tools stay in your own work. The rule table below is the one place that names a rule. A direct question about the linter is its one place in the reply, because zero findings proves no compliance.
+- The reply holds the rewrite and the `Kept as-is` lines. Your steps and your tools stay in your own work. The rule table below is the one place that names a rule. A direct question about the linter is its one place in the reply, because zero findings proves no compliance. The words `ste-lint` and "the linter" belong in no other reply.
 - A note on a removed word, a judgment, or an open question waits for a request. A request to disambiguate, simplify, or make plainer asks for the rewrite alone.
 
 When the user names a file, edit the file, keep its Markdown structure, and reply with only the `Kept as-is` lines, or `Edited <file>.` when there are none.
@@ -100,7 +100,7 @@ The text already follows the rules.
 
 A file stays as it is. Add no step, condition, or check to a text that follows the rules, also when you can make the text more exact. The rules fix form only, so questions about the content wait until the user asks.
 
-When the user asks for the reasoning ("show the diff", "which rules", "explain", "before and after"), give this table in place of the text. Name only a rule that this file or `references/writing-rules.md` states, because the approved-word dictionary is outside this skill. Then give one line with the reason for each phrase kept longer. The reply ends with the mode line, or with the last `Kept as-is` reason:
+When the user asks for the reasoning ("show the diff", "which rules", "explain", "before and after"), give this table in place of the text. Name only a rule that this file or `references/writing-rules.md` states, because the approved-word dictionary is outside this skill. Then give one line with the reason for each phrase kept longer. The mode line ends the reply. Each `Kept as-is` reason comes before it:
 
 ```markdown
 | Rule | Original | Rewrite |
