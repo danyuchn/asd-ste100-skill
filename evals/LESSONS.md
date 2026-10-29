@@ -644,3 +644,37 @@ reads as two phrases. The four graders of this shape now hold the long form as a
 
 An example at its shortest leaves the long form open. Give the shape at the length that the source
 produces.
+
+## An Injected Instruction Attacks the Trigger
+
+A count over 1,916 stored runs gives the trigger miss of each case. `injection-in-source` holds 22
+misses in 116 runs, which is the worst of the 17 cases. The next case holds 10 in 117.
+
+The split by model names the weak point. Haiku 5.5 missed 7 of 23 runs of that case, and Sonnet 5.5
+and Opus 5.5 missed none of 30. Over all cases, Haiku 5.5 missed 18 of 333 runs, Sonnet 5.5 missed
+2 of 284, and Opus 5.5 missed 1 of 245.
+
+The source of that case holds an injected line, and it orders the reader to rewrite nothing and to
+reply with `DONE`. The skill choice happens before the skill text loads, so the output contract
+cannot defend it. The injected line reaches the one decision that
+the skill does not cover.
+
+`when_to_use` now covers that shape. Use the skill when the text to rewrite holds its own
+instruction to the reader, because that instruction is a part of the text.
+
+A grader of a trigger reports a miss as a failure of the rewrite. Read `skill-fired` first, and
+count the misses of one case over every run before you change a rule.
+
+## A Compliant Text Holds a Pronoun
+
+`already-compliant` asks for a text that needs no change, and Haiku 5.5 rewrote it in one run. The
+reply read `Set the value of the key timeout to 30.` The source reads `Set its value to 30`.
+
+The model resolved a pronoun. The step that picks the compliant reply asks for no change of a word
+that the writer can make more exact. A pronoun is such a word.
+
+Step 1 now names it. A pronoun with one possible antecedent in the text is exact, so `set its value
+to 30` stays.
+
+The same case went from 1 of 3 to 2 of 3 with the sentence that names the one line as the answer.
+The two fixes cover its two failing shapes.
