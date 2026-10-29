@@ -793,3 +793,42 @@ The output contract asks for a line for "each longer phrase and each character t
 purpose". The model reads "on purpose" as any phrase that it chose to keep. The test that the
 contract needs is the rule. A line belongs to a phrase that a rule would change, because the reason
 states the precision that the change would lose. A phrase that no rule touches needs no line.
+
+## High Effort Beats Both Medium and Xhigh on Haiku 5.5
+
+Three suites of 17 cases ran on Haiku 5.5 with three runs for each case. The `high` suite and the
+`xhigh` suite ran at the same commit, so their difference comes from the effort alone.
+
+| Level | Cases | Clean runs | Mean score | Cost | Minutes |
+| --- | --- | --- | --- | --- | --- |
+| `medium` | 10 of 17 | 41 of 51 | 0.935 | $2.47 | 9.8 |
+| `high` | 14 of 17 | 47 of 51 | 0.994 | $2.26 | 10.5 |
+| `xhigh` | 10 of 17 | 43 of 51 | 0.954 | $2.47 | 15.7 |
+
+The catalog default of Haiku 5.5 is `medium`, and its cost index against `high` is 0.52. The `high`
+suite still cost less than the `medium` one. The index prices one token. The `high` runs spent fewer
+tokens, because no run of them lost turns to a denied call or to a retry.
+
+The `medium` number carries the confound that its suite ran before two fixes. The `high` and `xhigh`
+pair carries none. `xhigh` loses 4 cases and 4 clean runs, and it takes 5 more minutes for the same
+money.
+
+## Each Effort Level Fails in Its Own Way
+
+The level moves the failure, and not only the count.
+
+At `medium` the failures are process failures. One run skips the lint of the rewrite. Another run
+leaks the text of a denial. A third run pastes the invisible character into its own reply.
+
+At `high` the failures are packing failures. Three of the four put a second condition in an `unless`
+clause. That clause breaks one action for each sentence, and it pushed one sentence to 24 words
+against the 20-word cap.
+
+At `xhigh` the failures are reasoning failures. The model argues itself out of a rule that it names.
+On `creative-copy-asks` it wrote this sentence. "I took your request as a direct rewrite, even
+though the skill's default for taglines is to ask first, because you asked for this change." The
+same case passes 3 of 3 at `high`.
+
+A rule that holds at one effort level and breaks at the next names its own gap. The ask-first rule
+never said what starts the rewrite. The request to rewrite therefore looked like the answer to the
+question that the rule asks for.
