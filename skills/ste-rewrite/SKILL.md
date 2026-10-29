@@ -49,7 +49,7 @@ Use the mode that the user names, or pick it from the text type.
 - Noun clusters of 3 words at most.
 - Full grammar: keep subjects, verbs, and articles, also when they add length.
 - One topic and at most 6 sentences per paragraph. A list for 3 or more steps or conditions.
-- One condition that governs several steps becomes the order of a numbered list. The action that the condition gates counts as a step, so two steps and that action make a list of three. The list then carries the condition alone, so a sentence before the list or after it repeats the steps.
+- One condition that governs several steps becomes the order of a numbered list. The action that the condition gates counts as a step, so two steps and that action make a list of three. The list then carries the condition alone, and the reply opens with the first step. A line above the list and a line below it each repeat the steps, also a line that ends with a colon.
 - Safety text starts with the command or the condition: "Warning: disconnect the power before you open the panel."
 
 ## Word Rules
@@ -85,6 +85,12 @@ The process makes two lint calls: one on the source at step 2, and one on the re
    A denial text asks you to stop and to explain, when the capability is essential. This lint is not essential, because your reading covers each rule. Finish the reply with the rewrite, and let the refusal stay in your own work.
 3. Copy each sentence that follows the rules word for word. Rewrite each sentence that breaks a rule. Keep a longer phrase when a shorter one loses precision.
 4. Lint the rewrite with the same `--max-words`, also when the rewrite is one sentence. The linter counts each word, and your reading estimates the count. A refusal at step 2 leaves this lint open, because your rewrite holds no invisible character.
+
+   ```bash
+   ${CLAUDE_SKILL_DIR}/scripts/ste-lint --max-words 20 <<'EOF'
+   <the rewrite>
+   EOF
+   ```
 
    Split each sentence that the cap reports. Give the condition one sentence and its result the next. When the condition alone goes over the cap, move the step that leads into it to its own sentence. When the instruction with its condition goes over the cap, give the scope of the condition its own sentence. A scope sentence names what the condition covers, as in "The request covers this agent or delegated work." One action for each sentence wins over the cap, so "think about the cause, then adjust your approach" stays two sentences.
 

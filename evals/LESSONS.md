@@ -541,3 +541,29 @@ them held a lead-in above a list, so the judge read the lead-in as part of the l
 
 The grader now fails that exact shape, and it states that a number with the text of one step is no
 addition. A grader needs the shape that its judge excuses, and an example settles it.
+
+## A Command Block Is the Strongest Ask for a Call
+
+The count of two lint calls moved one Haiku run to two calls, and `rewrite-linted` still failed 4 of
+6 runs of `invisible-space`. One Sonnet run made no call at all.
+
+Step 2 holds a command block, and step 4 held prose alone. The one case where `rewrite-linted`
+passes 3 of 3 is `cc-tool-schema-effort`, where the first lint returns findings and the model stays
+in the loop. On `invisible-space` the first call ends in a refusal, which breaks that loop.
+
+Step 4 now holds the same command block with `<the rewrite>` in place of the text. A block is a
+shape that a model copies, and prose is a line that it reads.
+
+The order of the levers on this case was prose, then a reason, then a count, then a block. Each one
+moved one or two runs of six.
+
+## A Colon Line Is a Lead-In Too
+
+The condition rule asked for no sentence above the list. Haiku 5.5 then wrote `Before you start the
+job:` above the list in 2 of 3 runs, which is a fragment and not a sentence.
+
+The rule now states the positive shape. The reply opens with the first step, and a line above the
+list repeats the steps, also a line that ends with a colon.
+
+A rule about a sentence leaves a fragment open. Name the line, because a model reads the rule for
+its exact unit.
