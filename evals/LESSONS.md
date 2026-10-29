@@ -437,3 +437,30 @@ caps, and each sentence that gives an order takes 20 words.
 
 A cap without its unit is a coin flip. `rewrite-linted` with `min: 2` proved that the model linted
 the rewrite, which moved the question from a skipped step to the flag of the call.
+
+## A Negative Example Arrives as a Template
+
+The sentence rule for a condition over several steps named two wrong shapes by their words. It said
+that `Do both steps first` wraps at the start, and that `Do this before you start the job` wraps at
+the end.
+
+Haiku 5.5 then wrote `Do this before you start the job.` under the list in `invisible-space`, which
+is the second string of that rule. The run before this one produced the clean list in all three
+runs, so the example reversed a fix.
+
+The rule now names the shape by its grammar. The list carries the condition alone, and a sentence
+before the list or after it repeats the steps. No string of the rule fits an output.
+
+A rule needs the shape that breaks it, and a wrong shape needs no quotable sentence. Give the
+grammar of the wrong shape, and keep each quotable sentence correct.
+
+## A Refusal Names the Tool, and the Cause Is the Command
+
+Step 2 asked the model to replace the invisible character and to lint the text again. Haiku 5.5 made
+one call in each of three runs, and it stopped at the refusal.
+
+The denial text explains that choice, because it opens with `Permission to use Bash has been denied`.
+That sentence names the tool, and it names the don't-ask mode, so a second call reads as futile. The real cause is the one command, and the same command runs after the character is plain.
+
+Step 2 now states that difference, so the retry has a reason. A model needs the cause of a refusal
+to retry it, because the text of the refusal points at the tool.

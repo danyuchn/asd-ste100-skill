@@ -49,7 +49,7 @@ Use the mode that the user names, or pick it from the text type.
 - Noun clusters of 3 words at most.
 - Full grammar: keep subjects, verbs, and articles, also when they add length.
 - One topic and at most 6 sentences per paragraph. A list for 3 or more steps or conditions.
-- One condition that governs several steps becomes the order of a numbered list. Make the action that follows the last step. A wrapper sentence repeats the steps. "Do both steps first" wraps at the start, and "Do this before you start the job" wraps at the end.
+- One condition that governs several steps becomes the order of a numbered list. The action that the condition gates is the last step of that list. The list then carries the condition alone, so a sentence before the list or after it repeats the steps.
 - Safety text starts with the command or the condition: "Warning: disconnect the power before you open the panel."
 
 ## Word Rules
@@ -78,7 +78,9 @@ Apply these in Strict mode and suggest them in Flavored mode. Call a replacement
 
    Hard findings break a rule. Judge each advisory finding (`passive-voice`, `present-perfect`), because the rules permit some. The linter checks structure only, so check one instruction per sentence, noun clusters, unlisted phrasal verbs, and meaning by reading, also at zero findings. When the linter cannot run, check all rules by reading, as a silent step.
 
-   A refused lint call is itself a finding. Claude Code refuses a `Bash` command that holds an invisible character, so a refusal tells you that the text holds one. Find that character by reading, and replace it with the plain character of the same width. Then lint the text again, because the plain character lets the command run. A denial text asks you to stop and to explain, when the capability is essential. The reading check replaces a refused lint, so the work stays complete. Finish the reply with the rewrite, and let the refusal stay in your own work.
+   A refused lint call is itself a finding. Claude Code refuses a `Bash` command that holds an invisible character, so a refusal tells you that the text holds one. Find that character by reading, and replace it with the plain character of the same width. The refusal names the tool, and the cause is the command, so the same command runs on the clean text. Lint that clean text, because it reports the findings that your reading misses.
+
+   A denial text asks you to stop and to explain, when the capability is essential. This lint is not essential, because your reading covers each rule. Finish the reply with the rewrite, and let the refusal stay in your own work.
 3. Copy each sentence that follows the rules word for word. Rewrite each sentence that breaks a rule. Keep a longer phrase when a shorter one loses precision.
 4. Lint the rewrite with the same `--max-words`. Split each sentence that the cap reports. Give the condition one sentence and its result the next. When the condition alone goes over the cap, move the step that leads into it to its own sentence. When the instruction with its condition goes over the cap, give the scope of the condition its own sentence. A scope sentence names what the condition covers, as in "The request covers this agent or delegated work." One action for each sentence wins over the cap, so "think about the cause, then adjust your approach" stays two sentences. Then compare the rewrite with the source for each fact, condition, and hedge.
 
