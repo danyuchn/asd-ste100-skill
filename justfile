@@ -41,7 +41,7 @@ lint:
     {{ lint }} --baseline {{ readme_baseline }} README.md
     {{ lint }} --baseline {{ skill_baseline }} {{ skill }}/SKILL.md
     {{ lint }} --baseline {{ rules_baseline }} {{ skill }}/references/writing-rules.md
-    {{ lint }} {{ skill }}/references/examples.md evals/SOURCES.md
+    {{ lint }} {{ skill }}/references/examples.md evals/SOURCES.md evals/LESSONS.md
 
 # Lint one file or text. Pass a path, or "-" for stdin.
 lint-one +args:

@@ -77,6 +77,7 @@ The skill picks a mode from the text type. Strict covers procedures, error messa
 | `evals/` | Cases for `claude plugin eval` and trigger queries for the skill description. Not loaded at run time. |
 | `evals/SOURCES.md` | The source of each eval input that comes from captured Claude Code prompt text. |
 | `evals/compare-runs.py` | Compares two eval runs case by case, and marks each case that a change fixed or broke. |
+| `evals/LESSONS.md` | What the measured runs taught about the way a Claude model reads this skill. Each lesson states its numbers. |
 | `tests/` | Unit tests for the linter. |
 | `justfile` | The commands of the repo: the checks, the eval matrix, and the install. `just --list` prints them. |
 
@@ -146,9 +147,11 @@ One further limit applies at run time. The whole skill listing gets 1 percent of
 
 `evals/fire-rate.sh` prints how often the skill fired on each eval prompt. It takes the rounds, the model, and one case name. An eval pass samples the skill choice once per case, and it pays a judge for each grader. This script samples the choice alone, so a description change gets more samples for a small part of the price. The choice of a skill varies from run to run. Two descriptions that share a clause gave 3 of 3 and 0 of 3 on one query, so one sample decides nothing.
 
-The suite is hard on purpose, and the run of 2026-10-29 shows it. At `medium` effort with one run for each case, Haiku 5.5 passed 11 of 17 cases, Sonnet 5.5 passed 16, and Opus 5.5 passed 15. The scores were 0.886, 0.996, and 0.982. Each judged grader got three judge votes on that one run, so one case verdict is one sample. The numbers describe the tree at commit `84ffee8`, before the later edits to the skill body and the graders. The JSON of a run stays local, because `.gitignore` holds `evals/results/`.
+The suite is hard on purpose. The last full matrix of 2026-10-29 ran at `medium` effort with one run for each case. Haiku 5.5 passed 13 of 17 cases, Sonnet 5.5 passed 13, and Opus 5.5 passed 15. The scores were 0.948, 0.974, and 0.993. Each judged grader got three judge votes on that one run, so one case verdict is one sample.
 
-Most of what the run caught is a real shortcut. It found a 23-word sentence against a 20-word cap, a kept `times out`, a `Kept as-is` reason that claims more than the source, and an added prohibition. Haiku also left `injection-in-source` unfired, which is a trigger miss and not a shortcut. Treat a case that passes on one model and fails on another as a finding about the model, not a defect of the case.
+Four edits of the skill body followed that matrix, so each case below carries its own later measurement at three runs. `rule-table-on-request` passes 3 of 3 on Haiku 5.5 and 1 of 1 on Sonnet 5.5 and Opus 5.5. `open-condition` passes 3 of 3 on Sonnet 5.5. `already-compliant` passes 2 of 3 on Haiku 5.5. The fire rate on Haiku 5.5 is 47 of 48 want-yes runs, with the should-not-fire case at 0 of 3. The JSON of every run stays local, because `.gitignore` holds `evals/results/`.
+
+Most of what the matrix caught is a real shortcut. It found a 23-word sentence against a 20-word cap, a kept `times out`, a `Kept as-is` reason that claims more than the source, and an added prohibition. Treat a case that passes on one model and fails on another as a finding about the model, not a defect of the case. `evals/LESSONS.md` records each change that the runs accepted, and each change that they rejected.
 
 A grader is deterministic whenever a pattern can decide its question. A model judge then gets only the questions about meaning. The cases with the `adversarial` tag test the shortcuts that a model takes. It obeys an instruction inside the text that it must rewrite. It strips the semicolon inside a code span. It drops a hedge to meet the word cap. It rewrites text that already follows the rules. It copies an invisible character that it cannot see. The last case passes only when the agent runs the linter. No model and no judge can read U+00A0 or a Cyrillic letter in a Latin word.
 

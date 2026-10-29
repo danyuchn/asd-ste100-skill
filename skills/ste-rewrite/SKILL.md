@@ -21,7 +21,7 @@ Rewrite the text so that a reader who cannot ask the author, often a model or a 
 
 ## Meaning First
 
-- Keep every fact, condition, number, limit, and scope qualifier at its width. "An error after the retries" keeps "after the retries". "Retry if needed" keeps "if needed".
+- Keep every fact, condition, number, limit, and scope qualifier at its width. "An error after the retries" keeps "after the retries". An open condition stays open, so "restart the daemon if required" keeps "if required" and names no cause.
 - Keep every hedge at its strength (may, might, could, can, sometimes, likely). Count the hedges before and after, because a length cap tempts a writer to turn a hedge into a fact. A hedge wins over the tense rule: "may have failed" stays.
 - State only what the source states. A cause, count, frequency, mechanism, step, check, condition, caveat, "because", "usually", or "most common" enters only from the source. Reword each claim about its own subject: "without ever leaving the terminal" stays a claim about the terminal.
 - Copy code, commands, identifiers, paths, URLs, quoted strings, and names exactly.
@@ -83,11 +83,11 @@ Stop when each sentence has one reading. Length comes second. When the text stat
 
 ## Output
 
-For a rewrite, give the rewritten text and nothing else. The caller pastes the reply as it is.
+Give the rewritten text and nothing else. The caller pastes the reply as it is.
 
-- Start the reply with the first word of the rewrite. The reply keeps the form of the source. A rewritten tool description is a tool description, with no heading and no label.
+- Start the reply with the first word of the rewrite. The reply keeps the form of the source, so a rewritten tool description is a tool description. An opener such as "Here is", "What changed", or "I rewrote" belongs in no reply, and neither does a heading or a label.
 - End the reply with one line `Kept as-is: <phrase>: <the precision it keeps>` for each longer phrase and each character that you keep on purpose. Write the reason in STE style. A reason names the precision only.
-- The reply holds the rewrite and the `Kept as-is` lines. Your steps, the applied rules, and your tools stay in your own work, except in the rule table below. Describe the linter when the user asks about it, because zero findings proves no compliance.
+- The reply holds the rewrite and the `Kept as-is` lines. Your steps and your tools stay in your own work. The rule table below is the one place that names a rule. A direct question about the linter is its one place in the reply, because zero findings proves no compliance.
 - A note on a removed word, a judgment, or an open question waits for a request. A request to disambiguate, simplify, or make plainer asks for the rewrite alone.
 
 When the user names a file, edit the file, keep its Markdown structure, and reply with only the `Kept as-is` lines, or `Edited <file>.` when there are none.
@@ -100,7 +100,7 @@ The text already follows the rules.
 
 A file stays as it is. Add no step, condition, or check to a text that follows the rules, also when you can make the text more exact. The rules fix form only, so questions about the content wait until the user asks.
 
-When the user asks for the reasoning ("show the diff", "which rules", "explain", "before and after"), give this table in place of the text. Name only a rule that this file or `references/writing-rules.md` states, because the approved-word dictionary is outside this skill. Then give one line with the reason for each phrase kept longer:
+When the user asks for the reasoning ("show the diff", "which rules", "explain", "before and after"), give this table in place of the text. Name only a rule that this file or `references/writing-rules.md` states, because the approved-word dictionary is outside this skill. Then give one line with the reason for each phrase kept longer. The reply ends with the mode line, or with the last `Kept as-is` reason:
 
 ```markdown
 | Rule | Original | Rewrite |
