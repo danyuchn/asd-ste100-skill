@@ -832,3 +832,43 @@ same case passes 3 of 3 at `high`.
 A rule that holds at one effort level and breaks at the next names its own gap. The ask-first rule
 never said what starts the rewrite. The request to rewrite therefore looked like the answer to the
 question that the rule asks for.
+
+## A Deleted Sentence Takes Its Rule With It
+
+The byte-escape command replaced the refusal paragraph of step 2. The old paragraph ended with one
+sentence. "Finish the reply with the rewrite, and let the refusal stay in your own work." The new
+paragraph held no such sentence.
+
+`lookalike-identifier` then failed on Haiku 5.5 at `high` effort. One run called
+`printf '%s' 'c\xd0\xbenfig.yaml' | xxd`, which the `--allow-tools` pattern does not cover. The run
+met a denial, made no lint call at all, and wrote "Note: I could not run the linter. The Bash tool
+was denied in this session" into the reply.
+
+The rule against a leaked denial lived in that one sentence. An edit that rewrites a paragraph needs
+a list of the rules that the old text carried. The restored skill holds the rule in one denial
+paragraph. The case then went from 1 of 3 to 3 of 3.
+
+Step 2 also gained the reason that the model needed. The linter reads the code point, and it is the
+one allowed command. A byte dump of the model's own therefore answers nothing and earns a denial.
+
+## A Reason That Invites the Question It Forbids
+
+The rule for a kept lookalike character said to name it in a `Kept as-is` line "because only the
+author knows the true name". One run on Haiku 5.5 read that as an invitation. It wrote a paragraph
+about U+043E and ended with "Tell me the correct name and I'll change it to `config.yaml`".
+
+The reason was true and it pointed the wrong way. The rule now states that the one line is the whole
+report of the character, and that the author decides the name from it.
+
+## A Rule Needs to State What Starts the Action
+
+Ask-first mode told the model to ask the user whether to rewrite creative copy. It never said what
+starts the rewrite. At `xhigh` effort, Haiku 5.5 took the request itself as the answer: "I took your
+request as a direct rewrite ... because you asked for this change."
+
+The mode now states that the request to rewrite is what selects the mode, so that request is no
+answer. The answer of the user is the one thing that starts the rewrite. The case went from 1 of 3
+to 3 of 3 at `xhigh`, and it holds 3 of 3 at `high`.
+
+A rule that passes at one effort level and fails at the next has a gap that the higher level finds.
+Fix the gap in place of the level.
