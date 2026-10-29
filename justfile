@@ -23,7 +23,11 @@ concurrency := "4"
 # matrix run, so the suite pays for a stronger judge.
 judge := "claude-sonnet-5-5"
 # A ceiling for one model of the matrix. The command exits 2 when it hits this.
+# One model at 3 runs for each case costs more, so raise it on the command line:
+# just max_cost=12 out=evals/results/v14 eval-matrix 3
 max_cost := "6"
+# The directory for the --json files of one matrix. `just compare` reads two of these.
+out := "evals/results/latest"
 
 # List the recipes.
 default:
@@ -57,15 +61,16 @@ validate:
 
 # Run the eval cases on one model. This makes paid model runs.
 eval model runs="1" ablation="none":
+    mkdir -p {{ out }}
     CLAUDE_CODE_EFFORT_LEVEL={{ effort }} claude plugin eval . \
       --model {{ model }} --judge-model {{ judge }} --runs {{ runs }} \
       --ablation {{ ablation }} -j {{ concurrency }} --max-cost-usd {{ max_cost }} \
       --trust-plugin --no-publish --allow-tools "Bash($PWD/{{ lint }} *)" \
-      --json evals/results/{{ model }}-{{ effort }}.json
+      --json {{ out }}/{{ model }}-{{ effort }}.json
 
 # Run the eval cases on each model of the matrix. This makes paid model runs.
-eval-matrix:
-    for model in {{ models }}; do just eval "$model"; done
+eval-matrix runs="1":
+    for model in {{ models }}; do just out={{ out }} max_cost={{ max_cost }} eval "$model" {{ runs }}; done
 
 # Compare two eval runs case by case. Pass two directories of --json files.
 compare before after:
