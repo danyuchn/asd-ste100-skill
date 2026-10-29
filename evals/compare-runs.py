@@ -4,6 +4,7 @@
 Usage: evals/compare-runs.py BEFORE_DIR AFTER_DIR
 Each directory holds the `--json` files that `just eval` writes, one for each model.
 It prints one table for each model, then the suite totals. It reads files only.
+It compares the `with` arm, which holds the runs that had the plugin.
 """
 import json
 import pathlib
@@ -39,11 +40,17 @@ def main() -> int:
     if not models:
         print("no model appears in both directories", file=sys.stderr)
         return 2
+    for m in sorted(set(runs_b) ^ set(runs_a)):
+        where = before if m in runs_b else after
+        print(f"!! {m} appears in {where} only, so it is left out", file=sys.stderr)
 
     for model in models:
         rb, ra = runs_b[model], runs_a[model]
         cases_b = {c["name"]: c for c in rb["cases"]}
+        names_a = {c["name"] for c in ra["cases"]}
         print(f"######## {model}")
+        for name in sorted(n for n in cases_b if n not in names_a):
+            print(f"  {name:<30} GONE     score {cases_b[name]['aggregates']['score']:.2f}")
         for case in ra["cases"]:
             name = case["name"]
             old = cases_b.get(name)
