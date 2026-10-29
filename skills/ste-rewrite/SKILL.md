@@ -49,7 +49,7 @@ Use the mode that the user names, or pick it from the text type.
 - Noun clusters of 3 words at most.
 - Full grammar: keep subjects, verbs, and articles, also when they add length.
 - One topic and at most 6 sentences per paragraph. A list for 3 or more steps or conditions.
-- One condition that governs several steps becomes the order of a numbered list. The action that the condition gates counts as a step, so two steps and that action make a list of three. The list then carries the condition alone, and the reply opens with the first step. A line above the list and a line below it each repeat the steps, also a line that ends with a colon.
+- One condition that governs several steps becomes the order of a numbered list. The action that the condition gates counts as a step, so two steps and that action make a list of three. A condition of time or order needs no words in that list, because the order of the steps states it. The reply opens with the first step. A line above the list and a line below it each repeat the steps, also a line that ends with a colon.
 - Safety text starts with the command or the condition: "Warning: disconnect the power before you open the panel."
 
 ## Word Rules

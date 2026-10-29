@@ -567,3 +567,29 @@ list repeats the steps, also a line that ends with a colon.
 
 A rule about a sentence leaves a fragment open. Name the line, because a model reads the rule for
 its exact unit.
+
+## A Model Obeys the Literal Shape of a Rule
+
+The condition rule said that the list carries the condition alone, and that the reply opens with the
+first step. Haiku 5.5 obeyed both lines at once. It wrote `1. Before you start the job, set the
+request timeout to 30 seconds.`, so the condition moved inside step 1.
+
+The timing then governs step 1 alone, and `one-instruction-per-sentence` failed all three runs. The
+phrase `carries the condition` reads as a text that holds the words of the condition.
+
+The rule now states the mechanism. A condition of time or order needs no words in the list, because
+the order of the steps states it. The grader passes the list of three steps with no `before` in it.
+
+A rule that names a place for a phrase moves the phrase. A rule that names the mechanism removes it.
+
+## A Command Block Restores the Loop, Not the Intent
+
+Step 4 of the process gained a command block. `cc-tool-schema-effort` on Sonnet 5.5 stayed at 3 of 3
+with two lint calls in each run. `invisible-space` on Sonnet 5.5 made two calls in 1 of 3 runs,
+where the round before made two calls in none.
+
+The refusal of the first call still ends the loop in most runs. A block gives the model the shape of
+the call, and the model needs a reason to make the call after a refusal.
+
+Each lever on this case moved one or two runs of six: a sentence, a reason, a count, and a block.
+The case holds the two levers that work on every other case, so the gap belongs to the refusal.
