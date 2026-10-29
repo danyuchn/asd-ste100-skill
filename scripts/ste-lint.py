@@ -85,7 +85,7 @@ LIST_ITEM_START = re.compile(
     r"^(?P<indent> {0,3})(?P<marker>[-*+]|[0-9]+[.)])(?P<gap> +)(?P<body>.*)$"
 )
 CONJUNCTION_END = re.compile(r"\b(?:and|or)\s*$", re.I)
-TABLE_SEPARATOR_CELL = re.compile(r"^:?-{3,}:?$")
+TABLE_SEPARATOR_CELL = re.compile(r"^:?-+:?$")
 # Headings, thematic breaks, front-matter delimiters, and HTML lines stand alone.
 STANDALONE_LINE = re.compile(r"^ {0,3}(?:#|<|(?:[-*_=] *){3,}$)")
 BLOCKQUOTE_PREFIX = re.compile(r"^ {0,3}(?:> ?)+")
@@ -201,22 +201,26 @@ def _is_list_continuation(line, content_indent):
 def _split_table_row(line):
     """Return trimmed table cells and their zero-based source columns.
 
-    A pipe must separate at least two cells. Escaped pipes stay in their cell.
-    This deliberately implements only the ordinary Markdown table shape; it is
-    enough to distinguish a table from prose that happens to contain a pipe.
+    A row needs a leading or trailing pipe, or a pipe between two cells.
+    Escaped pipes stay in their cell. This deliberately implements only the
+    ordinary Markdown table shape; it is enough to distinguish a table from
+    prose that happens to contain a pipe.
     """
     left = len(line) - len(line.lstrip())
     right = len(line.rstrip())
     content = line[left:right]
     if "|" not in content:
         return None
+    edge_pipe = False
     if content.startswith("|"):
         content = content[1:]
         left += 1
+        edge_pipe = True
     if content.endswith("|"):
         content = content[:-1]
+        edge_pipe = True
     raw_cells = re.split(r"(?<!\\)\|", content)
-    if len(raw_cells) < 2:
+    if len(raw_cells) < 2 and not edge_pipe:
         return None
 
     cells = []
@@ -233,7 +237,9 @@ def _markdown_table_cells(lines):
 
     The separator row anchors detection, so pipe-containing prose is not
     treated as a table. Both leading-pipe and no-leading-pipe table styles are
-    accepted when their header and body use the same number of cells.
+    accepted. As in GFM, the header and separator must have the same number of
+    cells, but a body row may have fewer or more. A line without a pipe ends
+    the table.
     """
     table_cells = {}
     index = 1
@@ -251,7 +257,7 @@ def _markdown_table_cells(lines):
         index += 1
         while index < len(lines):
             row = _split_table_row(lines[index])
-            if not row or len(row) != len(separator):
+            if not row:
                 break
             table_cells[index] = row
             index += 1
@@ -570,6 +576,15 @@ def selftest():
         findings, words_total = lint(table)
         assert not any(f["rule"] == "long-sentence" for f in findings), findings
         assert words_total == 27, words_total
+    # GFM also accepts one-dash separators, one column, and ragged body rows.
+    short_row = " ".join(f"term{number}" for number in range(1, 9))
+    for table in (
+            "| Label | Detail |\n|-|-|\n" + f"| {short_row} | {short_row} |\n" * 5,
+            "| Label |\n| --- |\n" + f"| {short_row} |\n" * 8,
+            "| Label | Detail |\n| --- | --- |\n| x |\n"
+            + f"| {short_row} | {short_row} | extra |\n" * 2):
+        findings, _ = lint(table)
+        assert not any(f["rule"] == "long-sentence" for f in findings), (table, findings)
     long_cell = " ".join(f"term{number}" for number in range(1, 27)) + "."
     findings, _ = lint(
         "| Label | Detail |\n"
