@@ -678,3 +678,18 @@ to 30` stays.
 
 The same case went from 1 of 3 to 2 of 3 with the sentence that names the one line as the answer.
 The two fixes cover its two failing shapes.
+
+## Three Rounds of a Fire Rate Decide Nothing
+
+The fire rate of the suite on Haiku 5.5 read 44 of 48 want-yes runs at 3 rounds for each case. The
+three weak cases of that sample were `lookalike-identifier` at 1 of 3, `error-message-hedges` at 2
+of 3, and `injection-in-source` at 2 of 3.
+
+Eight rounds of the same three cases gave 8 of 8, 8 of 8, and 7 of 8. One miss of three rounds says
+nothing about a case, and the earlier number of 47 of 48 came from the same sample size.
+
+The script samples the skill choice alone, so 8 rounds of one case cost a fraction of an eval pass.
+Sample a weak case again before you change the trigger text.
+
+The same 8 rounds hold the evidence for the trigger fix. `injection-in-source` on Haiku 5.5 missed 7
+of 23 runs before it. The case now fires in 7 of 8 samples, and it passes 3 of 3 eval runs.
