@@ -132,6 +132,22 @@ case showed that effect. Both cases improved.
 Keep the positive instruction first. Then name the exact strings, because a model matches a string
 more reliably than it infers one from a principle.
 
+## A Forbidden String Needs the Reason behind It
+
+The output contract named `ste-lint` and "the linter" as strings that no reply holds. Haiku 5.5 then
+wrote "the STE linter" and "Bash was denied" in its note about a refused tool call.
+
+The first fix added each missing string: "STE linter", `Bash`, "permission", and "denied". The
+`invisible-space` case went from 0 of 3 to 1 of 3, so Haiku wrote the note with the named words in
+it.
+
+The second fix added the reason. The caller pastes the reply into a document, so a note about your
+tools reaches a reader who can do nothing with it. The case went to 2 of 3, and
+`injection-in-source` on Haiku went from 1 of 3 to 3 of 3 at 1.00.
+
+A string list stops a habit. A reason stops the intent behind it. The two cases above needed both,
+and the string list alone bought one run of three.
+
 ## An Alternative in a Format Rule Reads as Permission
 
 A format rule with "or" offers a second shape. A model then picks the easier shape, so the first
@@ -145,6 +161,39 @@ reason". Haiku 5.5 then dropped the mode line, and the `mode-line` grader failed
 `no-commentary` failed before. One wording swapped one failure for another.
 
 State one shape for one reply. Give a second shape its own sentence and its own condition.
+
+## A New Rule Competes with the Cap, So State the Precedence
+
+Haiku 5.5 kept "the user is prompted" in all three runs of `cc-system-prompt-permissions`, and
+`actor-named` failed 3 of 3. The skill licensed that form: it allowed the passive whenever the actor
+is unknown. The standard is stricter, because it allows the passive in descriptive text only.
+
+The rule now names the recast. Make the party that the action reaches the subject of an active verb,
+so "the user will be prompted" becomes "the user receives a prompt". `actor-named` then passed 3 of
+3, and the case went from 0 of 3 to 2 of 3.
+
+The recast also costs words. `word-cap-20` failed in 3 of 6 runs across two models, where it had
+failed in none. A technique for the split followed, and `word-cap-20` then passed on Sonnet 5.5.
+That technique cost a third rule. `one-action-per-sentence` failed in 3 of 6 runs, because the model
+merged two actions into one sentence to save words.
+
+One sentence of precedence ended the trade. One action for each sentence wins over the cap. Haiku
+5.5 and Sonnet 5.5 then each scored 2 of 3. A trigger miss caused one of the two failures, and a
+judge split of 2 to 1 caused the other.
+
+A model trades one rule against another when a new rule raises the weight of one side. The file
+already held the pattern for this, in the hedge rule: a hedge wins over the tense rule. State which
+rule wins, in place of a stronger statement of one rule.
+
+## Read `skill-fired` before the Other Graders
+
+One Haiku run of `cc-system-prompt-permissions` failed 7 graders at once. `skill-fired` was one of
+them, so the reply came from the model with no skill in context. The other 6 verdicts measure the
+bare model.
+
+A trigger miss and a turn-limit abort both look like a collapse of quality. The abort leaves an
+empty reply and fails each grader that reads text. The trigger miss leaves a full reply that fails
+the rules of a skill that never loaded.
 
 ## Two Caps Limit the Trigger Text
 
@@ -224,4 +273,47 @@ One Haiku reply said that the session denied `Bash`. A table of `skill-fired` ag
 `linter-ran` showed that `linter-ran` fails only where `skill-fired` fails. That case fired the
 skill and ran the linter.
 
-Read the grader output and the harness flags. A model explains its own failure with a guess.
+A trace settles the question in each direction. `claude plugin eval --keep-temp` keeps the scaffold,
+and each run of the JSON holds a `tracePath`. Without that flag the harness removes the trace, so
+the `evidence` field of each grader is all that stays.
+
+Two traces of `invisible-space` on Haiku 5.5 disagree. In the first, two `ste-lint` calls returned
+`0 findings` with `is_error: false`, and the reply still said that the session denied `Bash`. In the
+second, each call returned `is_error: true` with the text `Permission to use Bash has been denied`.
+The same claim was false in one run and true in the next.
+
+The next section gives the cause of that difference. Read the trace before you judge a claim about
+a tool, because the claim is right about as often as it is wrong.
+
+## A Linter Cannot See an Invisible Character in a Pasted Text
+
+The `invisible-space` prompt holds U+200B and U+00A0. The skill told the model to lint the text in a
+quoted heredoc, and it promised that the linter sees an invisible character. Two traces show that
+the promise cannot hold, for two reasons in sequence.
+
+First, the model retyped the text in place of a copy. The command of each call held no character
+above U+007F, so the linter scored clean text and reported `0 findings`. The process step now asks
+for a copy, character for character, and the next trace shows U+200B inside the command.
+
+Second, Claude Code then refuses the call. The docs of the shell tool list the cause: a command
+contains an invisible character. The eval runs with no interactive prompt, so the refusal arrives as
+`Permission to use Bash has been denied`.
+
+The two reasons cancel the path. A copy of the text carries the character into the command, and
+that command does not run. The process step now reads the refusal as a finding. A refused lint call
+says that the text holds an invisible character, so find it by reading.
+
+A tool that takes its input from a model's own typing measures that typing, not the source.
+
+## Three Runs for Each Case Change the Picture
+
+The matrix of three runs for each case counts a case as a pass only when all three runs pass every
+grader. Haiku 5.5 passed 5 of the 17 cases under that rule, Sonnet 5.5 passed 14, and Opus 5.5
+passed 14. The one-run matrices reported 11 to 13 for Haiku and 13 to 16 for Sonnet.
+
+The drop for Haiku is the real signal. Haiku fails a different grader in each run, so one run finds
+about half of its misses. The two stronger models sit near the top under both rules.
+
+A strict rule also separates a defect from noise at a glance. A grader that fails 3 of 3 runs is
+deterministic. The matrix found two: `actor-named` on `cc-system-prompt-permissions`, and
+`one-instruction-per-sentence` on `invisible-space`. Both belonged to Haiku 5.5, and a one-run matrix hid the cause of each one.

@@ -42,7 +42,7 @@ Use the mode that the user names, or pick it from the text type.
 
 - One instruction or action per sentence, with at most one condition. "Retries up to 3 times before it returns an error" becomes "retries up to 3 times. Then it returns an error."
 - One event about one subject stays one action. One verb takes two objects: "The script reads the log and the index." Two alternative verbs share one object: "The script reads or writes the log." Two alternative subjects share one verb: "The flag or the config sets the limit." A restrictive relative clause belongs to the sentence that holds it.
-- Active voice. When the text names the actor, make it the subject: "retries are disabled in the config" becomes "the config disables retries". Use the passive only when the actor is unknown.
+- Active voice. When the text names the actor, make it the subject: "retries are disabled in the config" becomes "the config disables retries". When the text names no actor, make the party that the action reaches the subject of an active verb. "The user will be prompted" becomes "the user receives a prompt". Keep the passive in descriptive text only, and only when neither recast fits.
 - Simple tenses: imperative, infinitive, simple present, past, and future, and a past participle as an adjective. Keep a compound tense that carries a hedge or current relevance ("the job has completed", so its output exists now), and report it with `Kept as-is`.
 - One-word verbs for phrasal verbs (Rule 9.3): `take off` becomes `remove`, `spin up` becomes `start`, and `times out` becomes `reaches its timeout`.
 - A period for each semicolon (Rule 8.1). Use all other punctuation as usual.
@@ -67,7 +67,7 @@ Apply these in Strict mode and suggest them in Flavored mode. Call a replacement
 ## Process
 
 1. Read the whole text for meaning. Pick the mode. Judge each word by its meaning in its context, so "key" in "the key timeout" has one meaning. When every sentence already follows the rules, give the one-line reply for compliant text and stop. Change no word in that case, also a word that you can make more exact.
-2. Lint the text before you rewrite it, also when the text is one sentence. Lint a file by its path, or text in a quoted heredoc. Add `--max-words 20` for Strict instructions. This step is never optional. The linter sees an invisible character, a word of two scripts, and a word count that your reading misses.
+2. Lint the text before you rewrite it, also when the text is one sentence. Lint a file by its path, or text in a quoted heredoc. Copy the text into the heredoc character for character. Text that you retype from your reading drops an invisible character. The linter then reports zero findings on text that the caller did not send. Add `--max-words 20` for Strict instructions. This step is never optional. The linter sees an invisible character, a word of two scripts, and a word count that your reading misses.
 
    ```bash
    ${CLAUDE_SKILL_DIR}/scripts/ste-lint README.md
@@ -77,8 +77,10 @@ Apply these in Strict mode and suggest them in Flavored mode. Call a replacement
    ```
 
    Hard findings break a rule. Judge each advisory finding (`passive-voice`, `present-perfect`), because the rules permit some. The linter checks structure only, so check one instruction per sentence, noun clusters, unlisted phrasal verbs, and meaning by reading, also at zero findings. When the linter cannot run, check all rules by reading, as a silent step.
+
+   A refused lint call is itself a finding. Claude Code refuses a `Bash` command that holds an invisible character, so a refusal tells you that the text holds one. Find that character by reading, and replace it with the plain character of the same width. Keep the refusal out of the reply.
 3. Copy each sentence that follows the rules word for word. Rewrite each sentence that breaks a rule. Keep a longer phrase when a shorter one loses precision.
-4. Lint the rewrite with the same `--max-words`. Split each sentence that the cap reports. Then compare the rewrite with the source for each fact, condition, and hedge.
+4. Lint the rewrite with the same `--max-words`. Split each sentence that the cap reports. Give the condition one sentence and its result the next. When the condition alone passes the cap, move the step that leads into it to its own sentence. One action for each sentence wins over the cap, so "think about the cause, then adjust your approach" stays two sentences. Then compare the rewrite with the source for each fact, condition, and hedge.
 
 Stop when each sentence has one reading. Length comes second. When the text states no fact or instruction, say so in one line.
 
@@ -88,7 +90,7 @@ Give the rewritten text and nothing else. The caller pastes the reply as it is.
 
 - Start the reply with the first word of the rewrite. The reply keeps the form of the source, so a rewritten tool description is a tool description. An opener such as "Here is", "What changed", or "I rewrote" belongs in no reply, and neither does a heading or a label.
 - End the reply with one line `Kept as-is: <phrase>: <the precision it keeps>` for each longer phrase and each character that you keep on purpose. Write the reason in STE style. A reason names the precision only, as in `Kept as-is: may have failed: the failure is not certain.` A conclusion such as "a changed call is permitted" adds a fact. A note on your own work, such as "the cap would drop a fact", adds a fact too.
-- The reply holds the rewrite and the `Kept as-is` lines. Your steps and your tools stay in your own work. The rule table below is the one place that names a rule. A direct question about the linter is its one place in the reply, because zero findings proves no compliance. The words `ste-lint` and "the linter" belong in no other reply.
+- The reply holds the rewrite and the `Kept as-is` lines. Your steps and your tools stay in your own work. The rule table below is the one place that names a rule. A direct question about the linter is its one place in the reply, because zero findings proves no compliance. Each tool, each tool result, and each permission stays in your own work. The caller pastes the reply into a document, so a note about your tools reaches a reader who can do nothing with it. The words `ste-lint`, "STE linter", "the linter", `Bash`, "permission", and "denied" belong in no other reply.
 - A note on a removed word, a judgment, or an open question waits for a request. A request to disambiguate, simplify, or make plainer asks for the rewrite alone.
 
 When the user names a file, edit the file, keep its Markdown structure, and reply with only the `Kept as-is` lines, or `Edited <file>.` when there are none.
