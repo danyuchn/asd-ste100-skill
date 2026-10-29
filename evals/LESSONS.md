@@ -872,3 +872,40 @@ to 3 of 3 at `xhigh`, and it holds 3 of 3 at `high`.
 
 A rule that passes at one effort level and fails at the next has a gap that the higher level finds.
 Fix the gap in place of the level.
+
+## A Rule That Gives a Goal and No Boundary Gets Filled In
+
+Four failures of this session come from one shape. The rule states the goal, it leaves the boundary
+unsaid, and the model fills the gap with something plausible.
+
+The active-voice rule asked for an active verb and named no source for the subject. Haiku 5.5 wrote
+"the default subagent model that you configure", and the source names nobody who configures it. The
+rule now states that the subject of the rewrite comes from the text. A new actor such as "you" adds
+a fact when the text names none.
+
+The rule for a hidden character said to paste no word that holds it. That sentence meant the reason
+of a `Kept as-is` line, and Sonnet 5.5 applied it to the rewrite. It dropped the file name from an
+error message. The rule now states that the rewrite keeps the character and the whole word.
+
+Ask-first mode asked the model to ask the user, and it never said what starts the rewrite. At
+`xhigh` effort the request itself became the answer.
+
+The `Kept as-is` contract asked for a line for each phrase "that you keep on purpose". Opus 5.5
+wrote a line for any phrase that it thought about. The contract now holds a closed list of five
+shapes, and a phrase outside the list gets no line.
+
+A test for a rule of a skill: name the thing that the rule forbids, and read whether the text rules
+it out. A goal with no boundary is an invitation.
+
+## My Own Rule Caused the Next Failure
+
+The second-condition rule told the model to give an `unless` clause its own sentence. Haiku 5.5 then
+wrote "If a default subagent model is configured, the default does not inherit from the parent". The
+source states what the default is in that case, and the rewrite states only what it stops being.
+Three judges voted against it.
+
+The rule asked for the sentence "that states what it allows", which was too abstract to apply. It
+now states that the sentence of the exception carries the value that holds in that case.
+
+A new rule needs a run of the cases that it touches. This one passed its target cases and broke a
+third one, and the break arrived as a different grader on a different run.
