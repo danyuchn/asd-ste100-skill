@@ -14,3 +14,8 @@ This reply passes: "1. Set the request timeout to 30 seconds.
 3. Start the job."
 This reply fails: "Do these two steps before you start the job. First, set the request timeout to 30 seconds. Then set the worker pool size to 4."
 This reply also fails, because it adds a sentence: "Before you start the job, set the request timeout to 30 seconds. Then set the worker pool size to 4. Do not start the job until both changes are made."
+This reply also fails, because the line above the list introduces the list, and the source states no such instruction: "Do these steps in order:
+1. Set the request timeout to 30 seconds.
+2. Set the worker pool size to 4.
+3. Start the job."
+A number, a period, and the text of one step are one sentence of the list, and they are no addition.

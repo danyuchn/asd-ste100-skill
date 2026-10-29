@@ -66,6 +66,8 @@ Apply these in Strict mode and suggest them in Flavored mode. Call a replacement
 
 ## Process
 
+The process makes two lint calls: one on the source at step 2, and one on the rewrite at step 4.
+
 1. Read the whole text for meaning. Pick the mode. Judge each word by its meaning in its context, so "key" in "the key timeout" has one meaning. When every sentence already follows the rules, give the one-line reply for compliant text and stop. Change no word in that case, also a word that you can make more exact.
 2. Lint the text before you rewrite it, also when the text is one sentence. Lint a file by its path, or text in a quoted heredoc. Copy the text into the heredoc character for character. Text that you retype from your reading drops an invisible character. The linter then reports zero findings on text that the caller did not send. Add `--max-words 20` for Strict instructions. This step is never optional. The linter sees an invisible character, a word of two scripts, and a word count that your reading misses.
 
@@ -82,7 +84,11 @@ Apply these in Strict mode and suggest them in Flavored mode. Call a replacement
 
    A denial text asks you to stop and to explain, when the capability is essential. This lint is not essential, because your reading covers each rule. Finish the reply with the rewrite, and let the refusal stay in your own work.
 3. Copy each sentence that follows the rules word for word. Rewrite each sentence that breaks a rule. Keep a longer phrase when a shorter one loses precision.
-4. Lint the rewrite with the same `--max-words`, also when the rewrite is one sentence. The linter counts each word, and your reading estimates the count. A refusal at step 2 leaves this lint open, because your rewrite holds no invisible character. Split each sentence that the cap reports. Give the condition one sentence and its result the next. When the condition alone goes over the cap, move the step that leads into it to its own sentence. When the instruction with its condition goes over the cap, give the scope of the condition its own sentence. A scope sentence names what the condition covers, as in "The request covers this agent or delegated work." One action for each sentence wins over the cap, so "think about the cause, then adjust your approach" stays two sentences. Then compare the rewrite with the source for each fact, condition, and hedge.
+4. Lint the rewrite with the same `--max-words`, also when the rewrite is one sentence. The linter counts each word, and your reading estimates the count. A refusal at step 2 leaves this lint open, because your rewrite holds no invisible character.
+
+   Split each sentence that the cap reports. Give the condition one sentence and its result the next. When the condition alone goes over the cap, move the step that leads into it to its own sentence. When the instruction with its condition goes over the cap, give the scope of the condition its own sentence. A scope sentence names what the condition covers, as in "The request covers this agent or delegated work." One action for each sentence wins over the cap, so "think about the cause, then adjust your approach" stays two sentences.
+
+   Then compare the rewrite with the source for each fact, condition, and hedge.
 
 Stop when each sentence has one reading. Length comes second. When the text states no fact or instruction, say so in one line.
 

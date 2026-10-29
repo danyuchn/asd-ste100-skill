@@ -513,3 +513,31 @@ start the job.`, and the judge passed it, because `both` restores the scope.
 The condition rule now counts the gated action as a step, so two steps and that action make a list
 of three. Two rules of the same file gave two counts of the same text, and the count decided the
 shape.
+
+## A Count of the Calls Beats Another Sentence
+
+Two rounds added a sentence about the lint of the rewrite, and `rewrite-linted` stayed at 1 call in
+6 of 6 runs of `invisible-space`. One Haiku run linted the source with success, so no refusal
+explains the miss. Sonnet 5.5 wrote the exact list in 3 of 3 runs and linted no rewrite.
+
+Step 4 was one paragraph of 10 sentences, and the lint was its first sentence. The skill asks for at
+most 6 sentences in a paragraph, and the step broke its own rule.
+
+The Process section now opens with a count. The process makes two lint calls, one on the source and
+one on the rewrite. Step 4 splits into three paragraphs, so the lint call sits alone in the first
+one.
+
+A count is a fact that a model confirms against its own work. A sentence inside a long paragraph is
+a line that it reads once.
+
+## A Lenient Judge Hides a Rule of the Skill
+
+Haiku 5.5 wrote `Do these steps in order:` above the list in 2 of 3 runs, and
+`one-instruction-per-sentence` passed both. The skill forbids that line, because it adds no fact and
+introduces the text.
+
+The grader asked for no sentence that the source does not state, and it gave three examples. None of
+them held a lead-in above a list, so the judge read the lead-in as part of the list.
+
+The grader now fails that exact shape, and it states that a number with the text of one step is no
+addition. A grader needs the shape that its judge excuses, and an example settles it.
