@@ -484,3 +484,32 @@ step 4 runs where the lint of the source did not. One retry with a reason beats 
 The same run gave the format fix its evidence. Haiku 5.5 went from 3 failing graders to one in 2 of
 3 runs. Sonnet 5.5 wrote the exact list in 3 of 3 runs. The grammar of the wrong shape replaced its
 quotable sentence, and the list came back.
+
+## State the Recovery at the Step That Acts
+
+Step 2 held the recovery from a refused lint, and it named the lint at step 4. Two of 6 runs made
+the second call, and 4 made one call. Sonnet 5.5 ran the second lint after a refusal in one run, so
+the pairing works at times.
+
+The recovery now also sits in step 4, which is the step that makes the call. A refusal at step 2
+leaves this lint open, because the rewrite holds no invisible character.
+
+An instruction in the step before the action competes with the result of that step. A refusal ends a
+step, and the next step needs its own sentence about it.
+
+The denial rebuttal of the output contract held in the same run. Haiku 5.5 wrote no note about the
+refusal in any of 3 runs, where 2 of 3 runs held that note before it.
+
+## A List Needs the Gated Action in Its Count
+
+The list rule asks for a list at 3 or more steps. The `invisible-space` source holds two settings
+and one gated action, so a model counts two steps and writes prose. Sonnet 5.5 then wrote `Before
+you start the job, set the request timeout to 30 seconds. Then set the worker pool size to 4.`
+
+That shape loses the scope. The timing governs the first sentence alone, and
+`one-instruction-per-sentence` failed it. Haiku 5.5 wrote the same shape with `Do both before you
+start the job.`, and the judge passed it, because `both` restores the scope.
+
+The condition rule now counts the gated action as a step, so two steps and that action make a list
+of three. Two rules of the same file gave two counts of the same text, and the count decided the
+shape.
