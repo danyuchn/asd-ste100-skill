@@ -833,7 +833,7 @@ A rule that holds at one effort level and breaks at the next names its own gap. 
 never said what starts the rewrite. The request to rewrite therefore looked like the answer to the
 question that the rule asks for.
 
-## A Deleted Sentence Takes Its Rule With It
+## A Deleted Sentence Takes Its Rule with It
 
 The byte-escape command replaced the refusal paragraph of step 2. The old paragraph ended with one
 sentence. "Finish the reply with the rewrite, and let the refusal stay in your own work." The new
@@ -909,3 +909,20 @@ now states that the sentence of the exception carries the value that holds in th
 
 A new rule needs a run of the cases that it touches. This one passed its target cases and broke a
 third one, and the break arrived as a different grader on a different run.
+
+The fix measures 3 of 3 for `cc-tool-schema-model` on Haiku 5.5, at $0.42 for the round. The case
+read 2 of 3 three times before it: `one-action-per-sentence` in the matrix, then `no-invented-fact`
+for the invented actor, then `no-invented-fact` for the negated `unless` clause. Each round named a
+real defect with a general fix, so each round earned its price.
+
+## A Round Needs a Stopping Rule before It Runs
+
+Three rounds of 2 of 3 on one case look like one stubborn case. The grader name tells you which it
+is. A new grader at each round means that each round fixed a real defect and uncovered the next one.
+The same grader at each round means that the model does not hold the case, and another round buys
+nothing.
+
+The rule for this session: a fourth round of 2 of 3 with a fourth distinct grader ends the rounds.
+The README then reports the case with its grader names. The fourth round read 3 of 3, so the rule
+stayed unused. State the rule before the run, because the result of a paid round is a poor time to
+decide what counts as enough.
