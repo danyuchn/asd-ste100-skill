@@ -81,6 +81,13 @@ MAX_WORDS = 25  # descriptions cap; instructions cap is 20 but undetectable with
 
 CODE_FENCE = re.compile(r"^(```|~~~)")
 INLINE_CODE = re.compile(r"`[^`]*`")
+# Markup that is not prose: character references (&nbsp; &#39; &#x2192;),
+# inline link destinations ("](url"), and autolinks (<https://...>).
+NON_PROSE = re.compile(
+    r"&(?:[A-Za-z][A-Za-z0-9]{1,31}|#[0-9]{1,7}|#[xX][0-9A-Fa-f]{1,6});"
+    r"|(?<=\]\()[^)\s]+"
+    r"|<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*>"
+)
 LIST_ITEM_START = re.compile(
     r"^(?P<indent> {0,3})(?P<marker>[-*+]|[0-9]+[.)])(?P<gap> +)(?P<body>.*)$"
 )
@@ -130,6 +137,16 @@ def _count_words(text):
 def _mask_inline_code(text):
     """Blank code spans with equal-length spaces so columns stay true."""
     return INLINE_CODE.sub(lambda match: " " * len(match.group(0)), text)
+
+
+def _mask_non_prose(text):
+    """Blank code spans, then fill character references and link targets.
+
+    The fill is underscores, not spaces, so a token stays one token and word
+    counts do not change. An underscore is not a word character for _count_words.
+    """
+    return NON_PROSE.sub(lambda match: "_" * len(match.group(0)),
+                         _mask_inline_code(text))
 
 
 def _sentence_starts(text):
@@ -396,7 +413,7 @@ def lint(text, filename="<stdin>"):
         in_quote = is_quote
         after_boundary = not raw_line.strip()
         for segment, source_column in segments:
-            line = _mask_inline_code(segment)
+            line = _mask_non_prose(segment)
             words_total += len(line.split())
             for rule_id, level, pattern, msg in RULES:
                 for m in pattern.finditer(line):
@@ -586,6 +603,12 @@ def selftest():
     # single consistent term: no flag
     findings, _ = lint("Check the config. Check the output.")
     assert not any(f["rule"] == "synonym-rotation" for f in findings)
+    # character references and link targets are markup, not prose
+    findings, _ = lint("Press Ctrl&nbsp;C to stop &#59; &#x3B; &rarr; now. "
+                       "See [the docs](https://x.io/a;b) or <https://x.io/a;b>.")
+    assert not any(f["rule"] == "semicolon" for f in findings), findings
+    findings, _ = lint("Press [stop](https://x.io); then wait. Use & ; here.")
+    assert [f["col"] for f in findings if f["rule"] == "semicolon"] == [27, 46], findings
     # per-file labels
     findings, _ = lint("a; b", filename="x.md")
     assert findings[0]["file"] == "x.md"
