@@ -187,7 +187,9 @@ def _long_sentence_findings(pieces, filename):
 
 
 def _leading_spaces(line):
-    return len(line) - len(line.lstrip(" "))
+    """Count indentation columns. A tab advances to the next multiple of 4."""
+    expanded = line.expandtabs(4)
+    return len(expanded) - len(expanded.lstrip(" "))
 
 
 def _is_list_continuation(line, content_indent):
@@ -509,6 +511,8 @@ def selftest():
     # valid continuation lines and standalone four-space code are ignored
     findings, _ = lint("  - Confirm the target and\n    record the result.")
     assert not any(f["rule"] == "dangling-conjunction" for f in findings)
+    findings, _ = lint("- Confirm the target and\n\trecord the result.")
+    assert not any(f["rule"] == "dangling-conjunction" for f in findings), findings
     findings, _ = lint("- Confirm the target\n  and")
     dangling = [f for f in findings if f["rule"] == "dangling-conjunction"]
     assert len(dangling) == 1 and dangling[0]["line"] == 2, dangling
