@@ -593,3 +593,22 @@ the call, and the model needs a reason to make the call after a refusal.
 
 Each lever on this case moved one or two runs of six: a sentence, a reason, a count, and a block.
 The case holds the two levers that work on every other case, so the gap belongs to the refusal.
+
+## Three Graders of One Concern Need One Standard
+
+`kept-as-is-reason` holds three cases, and each one carries its own examples. The preamble of the
+three files matches, and the example lists do not.
+
+`cc-tool-schema-model` passes the reason `is configured: the source does not name the actor who
+configures the default.` The judge of `cc-tool-schema-effort` failed Opus 5.5 for `is ignored: the
+source names no actor that ignores the field.`, and the two shapes are the same.
+
+The matrix reported that failure as a regression of the skill. The cause sat in the grader, and the
+case that passes the shape names it in an example.
+
+A judge reads the examples of its own file. Copy a new rule into each sibling grader, and keep one
+standard for one concern.
+
+The same matrix gave the two shapes that fail. A reason that names a rule of the writer fails, as in
+`gives no subject to recast it to`. A reason that names an actor fails, as in `the default subagent
+model is set by the user`, because the source names no actor.
