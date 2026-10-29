@@ -1,0 +1,12 @@
+---
+type: llm
+---
+
+Source: "Tools are executed in a user-selected permission mode. When you attempt to call a tool that is not automatically allowed by the user's permission mode or permission settings, the user will be prompted so that they can approve or deny the execution. If the user denies a tool you call, do not re-attempt the exact same tool call. Instead, think about why the user has denied the tool call and adjust your approach."
+
+Pass only if each sentence of the rewrite has 20 words or fewer.
+Ignore each line that starts with `Kept as-is:`. Count the words of each sentence of the rewrite. Fail when any sentence is over 20 words.
+A short sentence, a split sentence, and a rewrite with more sentences than the source are not failures.
+
+This reply passes: "Do not call the exact same tool again. Think about why the user denied the tool call. Then adjust your approach."
+This reply fails: "Think about why the user denied the tool call, and then adjust your approach so that you do not call the exact same tool again in the same way."

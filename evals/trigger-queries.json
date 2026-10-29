@@ -1,0 +1,23 @@
+[
+	{ "split": "train", "should_trigger": true, "query": "can you make this error msg less ambiguous for the agent that parses it: 'Request may of failed due to possible timeout or bad creds'" },
+	{ "split": "train", "should_trigger": true, "query": "Rewrite the description of my search_tickets tool so the model stops misusing it: 'Searches tickets, can also be used to get a ticket by id if you pass id, otherwise does fuzzy match on title and body, results may be paginated'" },
+	{ "split": "train", "should_trigger": true, "query": "apply STE100 to docs/runbook.md" },
+	{ "split": "train", "should_trigger": true, "query": "Simplified Technical English version of this please: The system shall be restarted by the operator once the update has been applied." },
+	{ "split": "train", "should_trigger": true, "query": "our translators say the install guide is hard to translate, can you make the steps plainer? 1. Spin up the container and make sure it's been configured properly; then kick off the migration." },
+	{ "split": "train", "should_trigger": true, "query": "Write this handoff note so another agent can't misread it: 'finished most of the refactor, auth module left, tests kinda pass'" },
+	{ "split": "train", "should_trigger": true, "query": "Which STE rules does this sentence break? Show me the before and after: 'The report must be reviewed by the lead before the job is kicked off.'" },
+	{ "split": "validation", "should_trigger": true, "query": "This system prompt is too wordy and the model keeps misreading the second rule. Tighten it up: 'You are a helpful assistant that should try to avoid answering questions that have not been verified, and if a user asks about pricing you may want to refer them to sales; however, never make promises.'" },
+	{ "split": "validation", "should_trigger": true, "query": "Make this status report unambiguous for the downstream agent: 'Build mostly passed, a couple flaky tests were probably due to the network, re-ran and they seemed fine'" },
+	{ "split": "validation", "should_trigger": true, "query": "disambiguate: 'Close the valve after the pump has stopped unless pressure is still high'" },
+	{ "split": "validation", "should_trigger": true, "query": "Can you check README.md for STE violations and fix them?" },
+	{ "split": "train", "should_trigger": false, "query": "Translate this error message into German: 'The request may have failed.'" },
+	{ "split": "train", "should_trigger": false, "query": "Summarize this changelog in three bullets: added retries, fixed the login crash, dropped Python 3.8, sped up the cache." },
+	{ "split": "train", "should_trigger": false, "query": "Fix the typos in this paragraph: 'Teh sytem restarts evry night at midnite.'" },
+	{ "split": "train", "should_trigger": false, "query": "Write a punchy marketing tagline for our caching product" },
+	{ "split": "train", "should_trigger": false, "query": "Make this tweet more exciting: 'We shipped v2 today.'" },
+	{ "split": "train", "should_trigger": false, "query": "Explain what ASD-STE100 is and which industries use it" },
+	{ "split": "validation", "should_trigger": false, "query": "Rename the variable tmp to something clearer in utils.py" },
+	{ "split": "validation", "should_trigger": false, "query": "Write a short story where a robot misreads an instruction" },
+	{ "split": "validation", "should_trigger": false, "query": "Make this cover letter sound warmer and more personal: 'I am applying for the backend role. I have five years of Go.'" },
+	{ "split": "validation", "should_trigger": false, "query": "Convert this markdown table to CSV: | a | b |\n| --- | --- |\n| 1 | 2 |" }
+]
