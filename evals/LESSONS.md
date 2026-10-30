@@ -1143,3 +1143,23 @@ new claim.
 
 Report both numbers. A case count alone states that Opus 5.5 reads this skill worse than Haiku 5.5,
 and the run counts state the opposite.
+
+## A Shape That the Skill Teaches Needs a Shape in the Grader
+
+The branch fix held. `cc-tool-schema-model` read 3 of 3 on Opus 5.5, and every run of the round wrote
+"the default inherits from the parent". `default-inherits-parent` and `no-invented-fact` passed on
+each of the nine runs. Haiku 5.5 and Sonnet 5.5 then read 2 of 3 on one grader each. The two failing
+runs share one line: "Kept as-is: takes precedence over: the order of the sources decides the model."
+The judge voted FAIL, FAIL, PASS on both.
+
+That line comes from the output contract of `SKILL.md`, which gives it as a template. The grader held
+four shapes of a valid reason. They are an exclusion, a missing actor of a passive, the relevance of a
+compound tense, and a kept form. A reason of precision has none of those shapes. Two judges of three therefore
+read the order of the sources as a new claim. The source names the two sources that the override wins
+over, and it then names the default. The three sources do stand in an order.
+
+The grader now holds that shape with its justification. A fix of the skill that the graders do not
+know produces a split vote. A split vote then reads as a regression of the model.
+
+Each template line of the skill needs its shape in the grader of the case. Add the shape when the
+line goes in, because the next round scores what the skill teaches.

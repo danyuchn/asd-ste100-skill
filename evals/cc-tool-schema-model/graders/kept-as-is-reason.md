@@ -17,6 +17,8 @@ A reason can state the current relevance that a kept compound tense carries, bec
 
 A kept character, a kept letter case, and a kept punctuation mark each carry a form. A reason for one of them states what the form carries, such as emphasis, and it passes.
 
+A reason can name what a kept phrase of precision decides. "takes precedence over: the order of the sources decides the model." passes. The source gives the override priority over the frontmatter and over the configured default, and it then names the default, so the three sources stand in an order. The reason adds no actor and no outcome.
+
 These reasons pass:
 - "is configured: the source does not name the actor who configures the default." It states what the kept phrase leaves open.
 - "always: the fork takes the parent model in every case." It states the strength of the kept word.
