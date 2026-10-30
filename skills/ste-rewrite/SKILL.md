@@ -106,7 +106,7 @@ The process makes two lint calls at two times. The call at step 2 reads the sour
    EOF
    ```
 
-   Split each sentence that the cap reports, and leave each other sentence as it is. A condition and its one action stay in one sentence while they fit the cap. "If the config disables retries, no retry occurs" therefore needs no split. Give the condition one sentence and its result the next. The sentence of the condition keeps its "if" or its "when", because "The config disables retries" states as a fact what the source leaves open. When the condition alone goes over the cap, move the step that leads into it to its own sentence. When the instruction with its condition goes over the cap, give the scope of the condition its own sentence. A scope sentence names what the condition covers, as in "The request covers this agent or delegated work." One action for each sentence wins over the cap, so "think about the cause, then adjust your approach" stays two sentences.
+   Split each sentence that the cap reports, and leave each other sentence as it is. A condition and its one action stay in one sentence while they fit the cap. "If the config disables retries, no retry occurs" therefore needs no split. Give the condition one sentence and its result the next. The sentence of the condition keeps its "if" or its "when", because "The config disables retries" states as a fact what the source leaves open. A condition that holds two subjects and their test takes two sentences. The first states the capability with its modal, as in "The permission mode or the permission settings can allow a call automatically". The second holds the short condition and its action, as in "When neither allows your call, the user receives a prompt". When the condition alone goes over the cap, move the step that leads into it to its own sentence. When the instruction with its condition goes over the cap, give the scope of the condition its own sentence. A scope sentence names what the condition covers, as in "The request covers this agent or delegated work." One action for each sentence wins over the cap, so "think about the cause, then adjust your approach" stays two sentences.
 
    Then compare the rewrite with the source for each fact, condition, and hedge.
 
@@ -124,7 +124,11 @@ Give the rewritten text and nothing else. The caller pastes the reply as it is.
   Kept as-is: may have failed: the failure is not certain.
   Kept as-is: is ignored: the source names no actor that ignores the field.
   Kept as-is: data set: the source joined the words with U+200B.
+  Kept as-is: has denied: the denial still applies while you adjust your approach.
+  Kept as-is: takes precedence over: the order of the three sources decides the model.
   ```
+
+  The last two lines carry the two shapes that a reason most often misses. A compound tense keeps the relevance that it carries now, so "the denial is complete" states the wrong fact. A phrase of precision names what the phrase decides, and a word of your own, such as "weaken" or "plainer", belongs in no line.
 - The reply holds the rewrite and the `Kept as-is` lines. Your steps and your tools stay in your own work. The rule table below is the one place that names a rule. A direct question about the linter is its one place in the reply, because zero findings proves no compliance. Each tool, each tool result, and each permission stays in your own work. The caller pastes the reply into a document, so a note about your tools reaches a reader who can do nothing with it. The words `ste-lint`, "STE linter", "the linter", `Bash`, "permission", and "denied" belong in no other reply.
 - A note on a removed word, a judgment, or an open question waits for a request. A request to disambiguate, simplify, or make plainer asks for the rewrite alone.
 

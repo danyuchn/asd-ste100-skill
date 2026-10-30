@@ -66,13 +66,16 @@ validate:
     claude plugin validate .
 
 # Run the eval cases on one model. This makes paid model runs.
+# --keep-temp holds each scaffold, so a failing run of the matrix keeps its trace.
+# A regex grader reports the pattern alone, and the trace holds the reply that
+# missed it. `rm -rf /private/tmp/e-*` removes the scaffolds after a diagnosis.
 eval model runs="1" ablation="none":
     mkdir -p {{ out }}
     eff=$(test "{{ model }}" = "{{ haiku }}" && echo {{ haiku_effort }} || echo {{ effort }}); \
     CLAUDE_CODE_EFFORT_LEVEL="$eff" claude plugin eval . \
       --model {{ model }} --judge-model {{ judge }} --runs {{ runs }} \
       --ablation {{ ablation }} -j {{ concurrency }} --max-cost-usd {{ max_cost }} \
-      --trust-plugin --no-publish --allow-tools "Bash($PWD/{{ lint }} *)" \
+      --trust-plugin --no-publish --keep-temp --allow-tools "Bash($PWD/{{ lint }} *)" \
       --json {{ out }}/{{ model }}-"$eff".json
 
 # Run the eval cases on each model of the matrix. This makes paid model runs.
