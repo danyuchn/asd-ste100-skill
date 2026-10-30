@@ -1033,25 +1033,35 @@ negative source states the negative.
 ## A Rule That Asks for a Value Needs the Owner of the Value
 
 One rule took four rounds and three models to settle. It read "The sentence of the exception states
-the value that holds in that case". The source of the case reads "the agent uses the default subagent
-model when one is configured. Otherwise, the agent inherits the parent model".
+the value that holds in that case". The source of the case reads "the default (inherits from the
+parent unless a default subagent model is configured)".
 
 Round one: Haiku 5.5 wrote "the default does not inherit from the parent". That states what the value
 stops being. Round two came after a patch that asked for the value that holds. Haiku 5.5 then
 invented "the function returns an error to the caller after the timeout" in a sibling case. Round
 three came after a patch that bound the value to the source. Opus 5.5 then wrote "the default
-inherits the model of the parent", which moves the action to a new subject. Round four came after a
-patch that named the subject. Every model of the matrix then wrote that same sentence, and
-`no-invented-fact` or `kept-as-is-reason` failed 0 to 3 on each one.
+inherits the model of the parent", and my note of that round read the sentence as a moved subject.
+Round four came after a patch that named the subject. Every model of the matrix then wrote one
+sentence that `no-invented-fact` or `kept-as-is-reason` failed 0 to 3 on each model.
 
 Four patches of one rule produced a uniform failure. The rule asked for a value and named no owner
 for it, so each model supplied a subject to carry one. The rule now states that each branch sentence
 keeps the subject, the verb, and the object that the source gives that branch. It names the source
-sentence as the example, and it names both failing forms as facts that the source does not hold. The
-case then reads 3 of 3 on Haiku 5.5, on Sonnet 5.5, and on Opus 5.5, for $2.11 of the round.
+sentence as the example. The case then reads 3 of 3 on Haiku 5.5, on Sonnet 5.5, and on Opus 5.5, for
+$2.11.
 
 A patch of a rule keeps the shape that caused the failure. Read the whole rule after the second
 round, and replace the sentence that invites the failure.
+
+One correction belongs here. My reading of round three was wrong, and my first version of the
+replacement carried it. That rule named "The default inherits the model of the parent" as the invented
+form. The `default-inherits-parent` grader of the case asks for that exact fact, because the
+parenthetical of the source gives the inheriting to the default. The rule therefore forbade the
+sentence that another grader of the same case requires. The rule now names "the agent inherits from
+the parent" as the moved subject. That form is the one that `one-action-per-sentence` fails.
+
+Read each grader of a case before a rule comes out of its failure. The graders hold the reading of the
+source that the suite scores. A rule against one of them fails the case in a new way.
 
 ## A Long Condition Needs Its Own Shape
 
