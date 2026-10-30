@@ -1163,3 +1163,31 @@ know produces a split vote. A split vote then reads as a regression of the model
 
 Each template line of the skill needs its shape in the grader of the case. Add the shape when the
 line goes in, because the next round scores what the skill teaches.
+
+## An Unless Clause Leaves the Other Case Open
+
+The shape went into the grader, and Sonnet 5.5 then read 3 of 3 on the case. Haiku 5.5 read 1 of 3 in
+the same round, and `no-invented-fact` held each loss. Two runs of that round differ in one word.
+
+Run 2 wrote "This inheritance applies unless a default subagent model is configured". The judge voted
+PASS, PASS, PASS. Run 0 wrote "This inheritance does not apply when a default subagent model is
+configured". The judge voted PASS, FAIL, FAIL.
+
+The judges read the logic correctly. "A unless B" states the value of A while B is absent, and it
+states nothing about the case of B. A sentence that gives the B case an outcome therefore adds a fact.
+The negative form carries that addition, and the `unless` form carries none.
+
+The passing shapes of three models agree. Opus 5.5 wrote "When no default subagent model is
+configured, the default inherits from the parent" in each of its three runs. Sonnet 5.5 wrote the
+`when` form and a label, "The exception is a configured default subagent model". Haiku 5.5 wrote
+"A configured default subagent model applies instead". Each one states a value and leaves the open
+case open.
+
+The rule now lives in two places for its two jobs. Meaning First states that an `unless` clause
+leaves the other case open, because that is a rule about facts. Sentence Rules states that the clause
+stays with its branch while the two fit the cap, because that is a rule about splitting. The earlier
+text asked for a sentence of its own for every `unless` clause, and that split is what produced the
+negative form.
+
+A rewrite of a logical connective needs the truth table of the connective. `unless`, `only when`, and
+`otherwise` each leave one case open, and a split that fills that case states a new fact.
