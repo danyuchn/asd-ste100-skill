@@ -65,10 +65,11 @@ types:
 validate:
     claude plugin validate .
 
-# Run the eval cases on one model. This makes paid model runs.
 # --keep-temp holds each scaffold, so a failing run of the matrix keeps its trace.
 # A regex grader reports the pattern alone, and the trace holds the reply that
-# missed it. `rm -rf /private/tmp/e-*` removes the scaffolds after a diagnosis.
+# missed it. `just clean-temp` removes the scaffolds after a diagnosis.
+# `just --list` prints the last comment line, so the summary stays here.
+# Run the eval cases on one model. This makes paid model runs.
 eval model runs="1" ablation="none":
     mkdir -p {{ out }}
     eff=$(test "{{ model }}" = "{{ haiku }}" && echo {{ haiku_effort }} || echo {{ effort }}); \
@@ -82,14 +83,27 @@ eval model runs="1" ablation="none":
 eval-matrix runs="1":
     for model in {{ models }}; do just out={{ out }} max_cost={{ max_cost }} eval "$model" {{ runs }}; done
 
+# The harness drops the write bit of the scaffold and the read bit of its sealed
+# directory, so `rm -rf` alone reports a permission error on each one.
+# Remove the --keep-temp scaffolds of the eval command. Each one holds a trace.
+clean-temp:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    shopt -s nullglob
+    dirs=(/private/tmp/e-*)
+    if [ ${#dirs[@]} -eq 0 ]; then echo "no scaffolds"; exit 0; fi
+    chmod -R u+rwX "${dirs[@]}"
+    rm -rf "${dirs[@]}"
+    echo "removed ${#dirs[@]} scaffolds"
+
 # Compare two eval runs case by case. Pass two directories of --json files.
 compare before after:
     evals/compare-runs.py {{ before }} {{ after }}
 
-# Run one eval case on one model, for a fix. This makes paid model runs.
 # --keep-temp holds the scaffold, so the tracePath of each run still exists and
 # shows every tool call. Without it the harness removes the trace, and the
 # evidence field of each llm grader is all that stays.
+# Run one eval case on one model, for a fix. This makes paid model runs.
 eval-case model case runs="3":
     mkdir -p {{ out }}
     eff=$(test "{{ model }}" = "{{ haiku }}" && echo {{ haiku_effort }} || echo {{ effort }}); \
@@ -99,14 +113,14 @@ eval-case model case runs="3":
       --trust-plugin --no-publish --keep-temp --allow-tools "Bash($PWD/{{ lint }} *)" \
       --json {{ out }}/{{ case }}-{{ model }}.json
 
-# Measure the trigger rate of the description. This makes paid model runs.
 # The weakest model of the matrix misses the most triggers, so it is the default here.
+# Measure the trigger rate of the description. This makes paid model runs.
 triggers rounds="3" set="validation" model="claude-haiku-5-5":
     evals/trigger-queries.sh {{ rounds }} {{ set }} {{ model }}
 
-# Measure how often the skill fires on the eval prompts. This makes paid model runs.
 # One eval pass samples the skill choice once per case, which is too few to judge
 # a description, and this samples the choice alone at the effort of the matrix.
+# Measure how often the skill fires on the eval prompts. This makes paid model runs.
 fire-rate rounds="3" model="claude-haiku-5-5" case="":
     eff=$(test "{{ model }}" = "{{ haiku }}" && echo {{ haiku_effort }} || echo {{ effort }}); \
     CLAUDE_CODE_EFFORT_LEVEL="$eff" evals/fire-rate.sh {{ rounds }} {{ model }} {{ case }}
