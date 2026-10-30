@@ -1191,3 +1191,16 @@ negative form.
 
 A rewrite of a logical connective needs the truth table of the connective. `unless`, `only when`, and
 `otherwise` each leave one case open, and a split that fills that case states a new fact.
+
+The round after that rule read 2 of 3 on Haiku 5.5, up from 1 of 3, and the `unless` form appeared in
+each run. The one loss moved to another grader. Run 0 wrote this sentence: "If the
+agent definition has no model, the default inherits from the parent unless a default subagent model is
+configured". It holds two conditions, and `one-action-per-sentence` voted FAIL, FAIL, FAIL on it.
+Run 2 wrote the same clause after "Otherwise, the default applies", and it passed.
+
+A clause that stays needs its own sentence, and not a place in the sentence of another condition. The
+rule now states that the sentence of an `unless` clause holds that one condition. It names "the agent
+definition has no model" as a test that takes the sentence before it.
+
+A permission to keep a clause reads as a permission to stack it. State which sentence the clause
+belongs to, because the model fills the sentence it is writing.
