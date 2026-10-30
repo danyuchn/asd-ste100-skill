@@ -1080,3 +1080,56 @@ undiagnosed. The `eval` recipe now passes `--keep-temp` too. The scaffolds accum
 
 A deterministic grader costs no judge and reports no evidence. The trace is the only record of what
 the model wrote, so a matrix keeps its traces.
+
+The next matrix proved the value of the change. Both regex failures of that run came with a trace,
+and each trace named its cause in one line. The sections below hold the two causes.
+
+## An Example in a Fence Teaches the Model to Send a Fence
+
+`already-compliant` read 2 of 3 on Haiku 5.5 in one matrix and 2 of 3 in the next, for 7 of 9 runs.
+The trace holds the whole reply, and it reads as a fenced block with the text "```text" and then the
+one compliant line. `exact-reply` anchors its pattern, so the three backticks fail it.
+
+`SKILL.md` gave that line inside a fenced block of its own. The model copied the format of the
+example and not its content. The rule now gives the line as plain text, and it states that the reply
+opens with the word "The". A code fence adds three characters before the line, and the caller reads
+them as part of the reply. The case reads 3 of 3 after the change, at $0.01.
+
+Each example in a skill teaches its format. A one-line reply therefore needs an example with no
+fence, no bullet, and no label.
+
+## A Denial Message and a Refusal Message Need the Same Path
+
+The byte escape of step 2 exists because Claude Code stops a `Bash` command that holds an invisible
+character. The skill called that stop a refusal. In one run the stop arrived as a denial. Its message
+reads: "Permission to use Bash has been denied because Claude Code is running in don't ask mode".
+
+Haiku 5.5 read the denial as a permission problem, so it never sent the escape. It wrote the rewrite,
+it explained the denial in the reply, and it broke `no-commentary` and `rewrite-linted` with that
+explanation. The rule now names both messages, and it states that the escape is the next call after
+either one. The case reads 3 of 3 after the change.
+
+A rule that names one wording of a stop covers one wording. Name the class of the stop, and name the
+next action for the class.
+
+## The Case Metric Punishes the Model That Spreads Its Misses
+
+Three matrices gave 153 runs for each model. Sonnet 5.5 failed 4 of them, Opus 5.5 failed 9, and
+Haiku 5.5 failed 24. The case counts read 15, 14, and 11 of 17 for the same three models. Opus
+therefore ranked below Haiku on cases and above it on runs.
+
+A case passes only at 3 of 3, so one bad run costs a whole case. Opus 5.5 lost one case for every 1.8
+bad runs, and Haiku 5.5 lost one for every 3.0. Haiku concentrates its misses, and 7 of its 24 came
+from one run where the skill never fired.
+
+One grader held 5 of the 9 Opus failures: `kept-as-is-reason`. Opus writes the longest reasons, and a
+long reason carries a fact more often. The two template lines of the output contract removed that
+grader from its next matrix.
+
+The three Opus failures that stayed share one shape. Each one adds precision that the source does not
+hold. A hedge moved onto the cause, a condition grew to two tests, and one branch split into two.
+The strongest model spends its capability on the text, and the strict graders read each addition as a
+new claim.
+
+Report both numbers. A case count alone states that Opus 5.5 reads this skill worse than Haiku 5.5,
+and the run counts state the opposite.
