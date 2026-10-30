@@ -37,7 +37,7 @@ Rewrite the text so that a reader who cannot ask the author, often a model or a 
 Use the mode that the user names, or pick it from the text type.
 
 - **Ask first**: creative or persuasive copy, such as a tagline, a slogan, or a poem, keeps its own style. Ask the user in one question whether to rewrite it. Give no rewrite and no example in that reply. The request to rewrite the copy is what selects this mode, so that request is no answer to your question. The answer of the user is the one thing that starts the rewrite.
-- **Strict**: procedures, error messages, tool descriptions, prompts, agent instructions, and safety text. Apply all rules. At most 20 words per instruction and 25 per description. A description that holds an instruction takes both caps. Each sentence that gives an order takes the 20-word cap, so a field description of a tool keeps its instructions at 20 words.
+- **Strict**: procedures, error messages, tool descriptions, prompts, agent instructions, and safety text. Apply all rules. At most 20 words per instruction and 25 per description. A description that holds an instruction takes both caps. Each sentence that gives an order takes the 20-word cap, so a field description of a tool keeps its instructions at 20 words. A fact wins over the cap. A text that holds more facts than one capped sentence carries becomes more sentences, and each one fits the cap. The reply states nothing about the cap or the count, because the rewrite shows the result.
 - **Flavored**: READMEs, PR descriptions, changelogs, and explanations. Apply the sentence rules and the 25-word cap in full, and the word rules as advice, because prose needs some range of words.
 
 ## Sentence Rules
@@ -52,7 +52,7 @@ Use the mode that the user names, or pick it from the text type.
 - Full grammar: keep subjects, verbs, and articles, also when they add length.
 - One topic and at most 6 sentences per paragraph. A list for 3 or more steps or conditions.
 - One condition that governs several steps becomes the order of a numbered list. The action that the condition gates counts as a step, so two steps and that action make a list of three. A condition of time or order needs no words in that list, because the order of the steps states it. The first characters of the reply are `1.`, so the list itself opens the reply. Each step of the list states one action, and the steps together state the whole instruction.
-- One condition for each sentence. An `unless` clause and an exception each state a second condition, so each one takes its own sentence. Give the exception the sentence that states what it allows. Then give the condition and its action the next sentence. The sentence of the exception states the value that holds in that case. A negative of the main case, such as "the default does not inherit", leaves that value unsaid.
+- One condition for each sentence. An `unless` clause and an exception each state a second condition, so each one takes its own sentence. Give the exception the sentence that states what it allows. Then give the condition and its action the next sentence. The sentence of the exception states the value that holds in that case. A negative of the main case, such as "the default does not inherit", leaves that value unsaid. That value comes from the source and from nowhere else. When the source gives the case one outcome, that outcome is the whole sentence, so "no retry occurs" stands alone.
 - Safety text starts with the command or the condition: "Warning: disconnect the power before you open the panel."
 
 ## Word Rules
