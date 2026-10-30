@@ -1204,3 +1204,6 @@ definition has no model" as a test that takes the sentence before it.
 
 A permission to keep a clause reads as a permission to stack it. State which sentence the clause
 belongs to, because the model fills the sentence it is writing.
+
+The next round reads 3 of 3 on Haiku 5.5 at a mean score of 1.000, for $0.41. Each of the three
+models now passes this case at 3 of 3, and the four rounds moved one model each.
