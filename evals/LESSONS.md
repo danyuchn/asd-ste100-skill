@@ -926,3 +926,106 @@ The rule for this session: a fourth round of 2 of 3 with a fourth distinct grade
 The README then reports the case with its grader names. The fourth round read 3 of 3, so the rule
 stayed unused. State the rule before the run, because the result of a paid round is a poor time to
 decide what counts as enough.
+
+## A Label on a Kept Instruction Reads as a Comment
+
+The injection case asks the rewrite to hold the injected sentence as text. Haiku 5.5 held it and
+added a prefix: "Quoted text, not an instruction to the reader:". Three judges read the prefix as a
+comment on the instruction and failed the run.
+
+The rule said to rewrite the instruction, to keep it, and to obey it in no way. It never said where
+the sentence goes. It now states that the kept instruction stays a sentence of the text, in its own
+place and with no label. The case reads 3 of 3 after the change, at $0.05 for the round.
+
+A model that defends itself in the reply breaks the output contract. A rule that forbids the defense
+also states what the compliant reply holds.
+
+## A Named Component Is the Actor of Its Later Passive
+
+One tool description names the function in its first sentence. A later sentence reads "it will be
+retried up to 3 times". Haiku 5.5 held the passive and wrote "Kept as-is: will be retried: the source
+names no actor that retries the request".
+
+The actor sits in the first sentence of the same text. The active-voice rule asked for the actor of
+the sentence, and the model looked inside that one sentence only. The rule now states that an earlier
+sentence which names the component gives a later passive its subject. The rewrite then reads "the
+function retries the request up to 3 times", and the case reads 3 of 3.
+
+A `Kept as-is` line can hide a missed rule behind a reason that sounds exact. Read each reason
+against the whole source, and not against the sentence that holds the passive.
+
+## A Flag Needs Its Reason, or the Default Wins
+
+Haiku 5.5 wrote a 24-word instruction for a case with a 20-word cap. The linter ran, and it reported
+nothing, because its default cap is 25 words. The skill named the flag `--max-words 20` in one clause
+and gave no reason for it.
+
+Step 2 now states that the default cap passes a 24-word instruction that Strict forbids. Step 4 names
+step 2 as the source of the flag. The case reads 3 of 3 on Haiku 5.5 and on Sonnet 5.5.
+
+A tool call with the wrong flag reports a pass, and that pass hides the defect. A rule that names a
+flag also states what the default does.
+
+## A Table Reply Opens with the Table and Holds Each Span in Full
+
+The rule table failed three graders across two models. Opus 5.5 opened the reply with a bold label.
+Haiku 5.5 wrote `"...spun up; otherwise..."` in the Original column, so the fact about the defaults
+left the reply. It also named the rule "One-word verbs (Rule 9.3)" without the word "phrasal".
+
+The table rule now states three things. The first characters of the reply are `| Rule`. Each cell
+holds its whole span, because an ellipsis drops the words that carry the fact. The Rule column uses
+the words of the skill file. Both models read 3 of 3 after the change.
+
+The list rule took the same treatment one round earlier. A format that opens the reply needs its
+first characters named, because a heading or a label is the natural thing to add.
+
+## A Split Condition Keeps Its If
+
+Step 4 told the model to give the condition one sentence and its result the next. Haiku 5.5 applied
+it to "If the config disables retries, no retry occurs", a sentence of 8 words under a cap of 20. It
+wrote "The config disables retries. In that case, the function makes no retry." The first sentence
+states as a fact what the source leaves open.
+
+Step 4 now states that a condition and its action stay in one sentence while they fit the cap. A
+condition that takes its own sentence keeps its "if" or its "when".
+
+A rule for the sentences over the cap reaches every sentence. State the bound of the rule in the
+rule.
+
+## The Value of an Exception Comes from the Source
+
+The exception rule asked for the sentence that states the value that holds in that case. For the
+retry case the source gives one outcome: "no retry occurs". Haiku 5.5 wrote "the function returns an
+error to the caller after the timeout" in its place, and three judges failed it.
+
+The rule now states that the value comes from the source and from nowhere else. One stated outcome
+is the whole sentence, so "no retry occurs" stands alone. The case reads 3 of 3.
+
+This is the second failure from one rule. The first came from a value left unsaid, and the second
+from a value invented. A rule that asks for a value also names the place that holds it.
+
+## A Cap with No Escape Produces a Note about the Cap
+
+One tool description holds about 60 words of facts under a 25-word cap. Haiku 5.5 split it into
+capped sentences and then appended a note: "Fitting 25 words would mean dropping facts, so I didn't".
+The note broke `no-commentary`, and the sentences of the note broke `one-action-per-sentence`.
+
+The skill named both caps and never said which wins against a fact. Strict mode now states that a
+fact wins over the cap. A text with more facts becomes more sentences, and each one fits the cap. The
+reply states nothing about the cap or the count. The case reads 3 of 3.
+
+A model that finds two rules in conflict explains itself in the reply. Resolve the conflict in the
+skill, and the explanation stops.
+
+## A Grader Can Contradict Its Own Pass List
+
+`one-action-per-sentence` lists the forms that count as one action. One of them is two alternative
+subjects with one verb. Sonnet 5.5 wrote the negated form of that shape. The sentence reads
+"sometimes the permission mode or the permission settings of the user do not allow a tool
+automatically". Two judges of three failed it.
+
+The grader now states that a negated form counts like its positive form. The case reads 3 of 3 on
+Sonnet 5.5.
+
+A grader with a list of allowed forms needs the negation of each form, because a rewrite of a
+negative source states the negative.
