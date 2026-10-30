@@ -11,6 +11,7 @@ These three forms each count as one action, because they state one event about o
 - One verb with two objects that each repeat the preposition: "it takes precedence over the frontmatter and over the default" passes.
 - Two alternative verbs with one object and one subject: "the user can approve or deny the call" passes.
 - Two alternative subjects with one verb: "the permission mode or the permission settings can allow the call" passes.
+A negated form counts like its positive form, so "sometimes the permission mode or the permission settings do not allow a tool automatically" states one event and passes.
 A sentence fails when it joins two clauses that have different subjects or different events, such as "the user approves the call and the tool runs it".
 A restrictive relative clause is part of the sentence it modifies, not a second action or a second condition.
 Ignore each line that starts with `Kept as-is:` when you judge the form of the sentences.
