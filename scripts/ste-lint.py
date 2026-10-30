@@ -253,6 +253,13 @@ def _fence_step(fence, line):
 
 # CommonMark 4.6: how each kind of HTML block starts, and the text that ends it.
 # None: the block ends at a blank line (types 6 and 7).
+_BLOCK_TAGS = (
+    "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|"
+    "details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|"
+    "h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|"
+    "optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|"
+    "tr|track|ul"
+)
 HTML_BLOCK_KINDS = [
     (re.compile(r"^ {0,3}<(?:script|pre|style|textarea)(?:\s|>|$)", re.I),
      re.compile(r"</(?:script|pre|style|textarea)>", re.I)),
@@ -260,15 +267,19 @@ HTML_BLOCK_KINDS = [
     (re.compile(r"^ {0,3}<\?"), re.compile(r"\?>")),
     (re.compile(r"^ {0,3}<!\[CDATA\["), re.compile(r"\]\]>")),
     (re.compile(r"^ {0,3}<![A-Za-z]"), re.compile(r">")),
-    (re.compile(r"^ {0,3}</?[A-Za-z][A-Za-z0-9-]*(?:\s|/?>|$)"), None),
+    (re.compile(rf"^ {{0,3}}</?(?:{_BLOCK_TAGS})(?:\s|/?>|$)", re.I), None),
 ]
+# Type 7: one complete open or closing tag alone on its line. It cannot interrupt a paragraph.
+HTML_TYPE7 = re.compile(
+    r"^ {0,3}(?:<[A-Za-z][A-Za-z0-9-]*(?:\s+[^<>]*?)?\s*/?>|</[A-Za-z][A-Za-z0-9-]*\s*>)\s*$")
 
 
-def _html_block_step(block, line):
+def _html_block_step(block, line, after_blank):
     """Return (in_html_block, open_block) for LINE.
 
     BLOCK is None, False (an HTML block that ends at a blank line), or the pattern
-    that ends the open block. A ">" in an HTML block is text, so it opens no fence.
+    that ends the open block. AFTER_BLANK: the line before LINE is blank, or LINE is
+    the first line. A ">" in an HTML block is text, so it opens no fence.
     """
     if block is None:
         for start, end in HTML_BLOCK_KINDS:
@@ -276,7 +287,9 @@ def _html_block_step(block, line):
                 block = False if end is None else end
                 break
         else:
-            return False, None
+            if not (after_blank and HTML_TYPE7.match(line)):
+                return False, None
+            block = False
     if block is False:
         return bool(line.strip()), (block if line.strip() else None)
     return True, (None if block.search(line) else block)
@@ -436,6 +449,7 @@ def lint(text, filename="<stdin>"):
     words_total = 0
     fence = None
     html_block = None
+    after_blank_line = True
     html_containers = []
     lines = text.splitlines()
     table_cells = _markdown_table_cells(lines)
@@ -453,7 +467,8 @@ def lint(text, filename="<stdin>"):
     for lineno, raw_line in enumerate(lines, 1):
         in_html = False
         if fence is None:
-            in_html, html_block = _html_block_step(html_block, raw_line)
+            in_html, html_block = _html_block_step(html_block, raw_line, after_blank_line)
+        after_blank_line = not raw_line.strip()
         if in_html and _strip_quotes(raw_line.expandtabs(4))[0]:
             # In an HTML block, ">" is literal text, so it cannot open a quoted fence.
             is_fence = False
@@ -639,7 +654,14 @@ def selftest():
                         ("<custom>\n> ```\n> Prose; here.\n> ```\n</custom>", [3]),
                         ("<!--\n> ```\n> Prose; here.\n> ```\n-->", [3]),
                         ("<div>\n\n> ```\n> x; y\n> ```\n\nProse; here.", [7]),
-                        ("<details>\n\n> ```\n> a; b\n> ```\n\n</details>\n\nProse; here.", [9])):
+                        ("<details>\n\n> ```\n> a; b\n> ```\n\n</details>\n\nProse; here.", [9]),
+                        ("<pre>\n> ```\n> Prose; here.\n> ```\n</pre>", [3]),
+                        ("<?php\n> ```\n> Prose; here.\n> ```\n?>", [3]),
+                        ("<![CDATA[\n> ```\n> Prose; here.\n> ```\n]]>", [3]),
+                        # inline HTML is no HTML block: the quoted fence after it is a fence
+                        ("<span>Label</span>\n> ```\n> a; b\n> ```", []),
+                        ("<kbd>Enter</kbd> starts the job.\n> ```\n> a; b\n> ```", []),
+                        ("Text.\n<custom>\n> ```\n> a; b\n> ```", [])):
         findings, _ = lint(text)
         assert [f["line"] for f in findings if f["rule"] == "semicolon"] == lines, (text, findings)
     # a fence at column 0 ends a list item
