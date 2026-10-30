@@ -269,17 +269,22 @@ HTML_BLOCK_KINDS = [
     (re.compile(r"^ {0,3}<![A-Za-z]"), re.compile(r">")),
     (re.compile(rf"^ {{0,3}}</?(?:{_BLOCK_TAGS})(?:\s|/?>|$)", re.I), None),
 ]
-# Type 7: one complete open or closing tag alone on its line. It cannot interrupt a paragraph.
+# Type 7: one complete open or closing tag alone on its line (CommonMark 6.6 grammar).
+# It cannot interrupt a paragraph.
+_ATTRIBUTE = (r"\s+[A-Za-z_:][A-Za-z0-9_.:-]*"
+              r"(?:\s*=\s*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?")
 HTML_TYPE7 = re.compile(
-    r"^ {0,3}(?:<[A-Za-z][A-Za-z0-9-]*(?:\s+[^<>]*?)?\s*/?>|</[A-Za-z][A-Za-z0-9-]*\s*>)\s*$")
+    rf"^ {{0,3}}(?:<[A-Za-z][A-Za-z0-9-]*(?:{_ATTRIBUTE})*\s*/?>|</[A-Za-z][A-Za-z0-9-]*\s*>)\s*$")
+# A heading or a thematic break ends a paragraph and is no paragraph line.
+NO_PARAGRAPH = re.compile(r"^ {0,3}(?:#{1,6}(?:\s|$)|(?:[-*_][ \t]*){3,}$)")
 
 
-def _html_block_step(block, line, after_blank):
+def _html_block_step(block, line, in_paragraph):
     """Return (in_html_block, open_block) for LINE.
 
     BLOCK is None, False (an HTML block that ends at a blank line), or the pattern
-    that ends the open block. AFTER_BLANK: the line before LINE is blank, or LINE is
-    the first line. A ">" in an HTML block is text, so it opens no fence.
+    that ends the open block. IN_PARAGRAPH: a paragraph is open before LINE. A ">"
+    in an HTML block is text, so it opens no fence.
     """
     if block is None:
         for start, end in HTML_BLOCK_KINDS:
@@ -287,7 +292,7 @@ def _html_block_step(block, line, after_blank):
                 block = False if end is None else end
                 break
         else:
-            if not (after_blank and HTML_TYPE7.match(line)):
+            if in_paragraph or not HTML_TYPE7.match(line):
                 return False, None
             block = False
     if block is False:
@@ -449,7 +454,7 @@ def lint(text, filename="<stdin>"):
     words_total = 0
     fence = None
     html_block = None
-    after_blank_line = True
+    in_paragraph = False
     html_containers = []
     lines = text.splitlines()
     table_cells = _markdown_table_cells(lines)
@@ -467,13 +472,15 @@ def lint(text, filename="<stdin>"):
     for lineno, raw_line in enumerate(lines, 1):
         in_html = False
         if fence is None:
-            in_html, html_block = _html_block_step(html_block, raw_line, after_blank_line)
-        after_blank_line = not raw_line.strip()
+            in_html, html_block = _html_block_step(html_block, raw_line, in_paragraph)
         if in_html and _strip_quotes(raw_line.expandtabs(4))[0]:
             # In an HTML block, ">" is literal text, so it cannot open a quoted fence.
             is_fence = False
         else:
             is_fence, fence = _fence_step(fence, raw_line)
+        # A paragraph is open after a line of text that no other block takes.
+        in_paragraph = bool(raw_line.strip() and not in_html and not is_fence and not fence
+                            and not NO_PARAGRAPH.match(raw_line))
         if is_fence:
             flush()
             # A fence inside a quote does not start the quote: an alert marker after it is text.
@@ -661,7 +668,14 @@ def selftest():
                         # inline HTML is no HTML block: the quoted fence after it is a fence
                         ("<span>Label</span>\n> ```\n> a; b\n> ```", []),
                         ("<kbd>Enter</kbd> starts the job.\n> ```\n> a; b\n> ```", []),
-                        ("Text.\n<custom>\n> ```\n> a; b\n> ```", [])):
+                        ("Text.\n<custom>\n> ```\n> a; b\n> ```", []),
+                        # a type 7 tag after a heading or a fence starts a block
+                        ("# Title\n<custom>\n> ```\n> Prose; here.\n> ```\n</custom>", [4]),
+                        ("```\nx\n```\n<img src=\"a.png\">\n> ```\n> Prose; here.\n> ```", [6]),
+                        # attribute values may hold "<" and ">", an invalid attribute is no tag
+                        ('<span title="a > b">\n> ```\n> Prose; here.\n> ```', [3]),
+                        ("<custom a=>\n> ```\n> a; b\n> ```", []),
+                        ("<DIV class=x>text\n> ```\n> Prose; here.\n> ```", [3])):
         findings, _ = lint(text)
         assert [f["line"] for f in findings if f["rule"] == "semicolon"] == lines, (text, findings)
     # a fence at column 0 ends a list item
