@@ -1029,3 +1029,54 @@ Sonnet 5.5.
 
 A grader with a list of allowed forms needs the negation of each form, because a rewrite of a
 negative source states the negative.
+
+## A Rule That Asks for a Value Needs the Owner of the Value
+
+One rule took four rounds and three models to settle. It read "The sentence of the exception states
+the value that holds in that case". The source of the case reads "the agent uses the default subagent
+model when one is configured. Otherwise, the agent inherits the parent model".
+
+Round one: Haiku 5.5 wrote "the default does not inherit from the parent". That states what the value
+stops being. Round two came after a patch that asked for the value that holds. Haiku 5.5 then
+invented "the function returns an error to the caller after the timeout" in a sibling case. Round
+three came after a patch that bound the value to the source. Opus 5.5 then wrote "the default
+inherits the model of the parent", which moves the action to a new subject. Round four came after a
+patch that named the subject. Every model of the matrix then wrote that same sentence, and
+`no-invented-fact` or `kept-as-is-reason` failed 0 to 3 on each one.
+
+Four patches of one rule produced a uniform failure. The rule asked for a value and named no owner
+for it, so each model supplied a subject to carry one. The rule now states that each branch sentence
+keeps the subject, the verb, and the object that the source gives that branch. It names the source
+sentence as the example, and it names both failing forms as facts that the source does not hold. The
+case then reads 3 of 3 on Haiku 5.5, on Sonnet 5.5, and on Opus 5.5, for $2.11 of the round.
+
+A patch of a rule keeps the shape that caused the failure. Read the whole rule after the second
+round, and replace the sentence that invites the failure.
+
+## A Long Condition Needs Its Own Shape
+
+One source sentence names two subjects and their test: a permission mode, permission settings, and a
+tool call that neither allows automatically. In one sentence the rewrite needs 26 words against a cap
+of 20. Haiku 5.5 dropped the condition and wrote "You attempt to call a tool that the ... settings do
+not automatically allow". Sonnet 5.5 kept the condition and ran 6 words past the cap.
+
+The skill held two shapes for a long condition, a scope sentence and a lead-in step, and neither one
+fits this source. Step 4 now gives the third shape. The first sentence states the capability with its
+modal. The second holds the short condition and its action. The case reads 3 of 3 on all three models
+after the change.
+
+Two models failed one sentence in two opposite ways. A source that no shape of the skill covers
+produces a different failure on each model. The fix is therefore a shape, and not a prohibition.
+
+## A Matrix without Traces Cannot Diagnose a Regex Grader
+
+`already-compliant` read 2 of 3 on Haiku 5.5 in the matrix, and its `exact-reply` grader is a regex.
+The report gives "pattern not found in last_message" and no reply text. The `eval-case` recipe passes
+`--keep-temp`, and the `eval` recipe did not, so the scaffolds of the matrix were gone.
+
+A rerun of the case at the same commit read 3 of 3 at $0.01, which leaves the two failures
+undiagnosed. The `eval` recipe now passes `--keep-temp` too. The scaffolds accumulate under
+`/private/tmp/e-*`, and `rm -rf /private/tmp/e-*` removes them after a diagnosis.
+
+A deterministic grader costs no judge and reports no evidence. The trace is the only record of what
+the model wrote, so a matrix keeps its traces.
