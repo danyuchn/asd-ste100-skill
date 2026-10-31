@@ -319,12 +319,6 @@ def _html_block_step(block, line, in_paragraph):
     return True, (None if block.search(line) else block)
 
 
-def _leading_spaces(line):
-    """Count indentation columns. A tab advances to the next multiple of 4."""
-    expanded = line.expandtabs(4)
-    return len(expanded) - len(expanded.lstrip(" "))
-
-
 def _is_list_continuation(line, content_indent):
     if not line.strip():
         return True
