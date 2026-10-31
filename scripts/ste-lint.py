@@ -83,6 +83,9 @@ MAX_WORDS = 25  # descriptions cap; instructions cap is 20 but undetectable with
 
 CODE_FENCE = re.compile(r"^(`{3,}|~{3,})")
 INLINE_CODE = re.compile(r"`[^`]*`")
+BACKTICK_RUN = re.compile(r"`+")
+# A list item start at any indent, to find the content indent of its item.
+LIST_ITEM_INDENT = re.compile(r"^( *)([-*+]|[0-9]+[.)])( +|$)")
 # Markup that is not prose: character references (&nbsp; &#39; &#x2192;),
 # inline link destinations ("](url"), and autolinks (<https://...>).
 NON_PROSE = re.compile(
@@ -139,6 +142,42 @@ def _count_words(text):
 def _mask_inline_code(text):
     """Blank code spans with equal-length spaces so columns stay true."""
     return INLINE_CODE.sub(lambda match: " " * len(match.group(0)), text)
+
+
+def _closes_later(run, lines):
+    """True when a backtick run of length RUN is in LINES before a blank line."""
+    for line in lines:
+        if not line.strip():
+            return False
+        if any(len(m.group()) == run for m in BACKTICK_RUN.finditer(line)):
+            return True
+    return False
+
+
+def _mask_code_spans(line, open_run, later_lines):
+    """Blank the code spans in LINE, also a span that wraps across lines.
+
+    OPEN_RUN is the backtick run length of a span still open from an earlier
+    line, or 0. LATER_LINES are the lines after LINE. As in CommonMark 6.1, a
+    span ends at the next run of the same length, and a run that no later run
+    in the paragraph closes is literal text. Return (masked line, open run).
+    """
+    masked = list(line)
+    start = 0 if open_run else None
+    runs = list(BACKTICK_RUN.finditer(line))
+    for i, run in enumerate(runs):
+        n = len(run.group())
+        if start is not None:
+            if n == open_run:
+                masked[start:run.end()] = " " * (run.end() - start)
+                start, open_run = None, 0
+            continue
+        if (any(len(r.group()) == n for r in runs[i + 1:])
+                or _closes_later(n, later_lines)):
+            start, open_run = run.start(), n
+    if start is not None:
+        masked[start:] = " " * (len(line) - start)
+    return "".join(masked), open_run
 
 
 def _mask_non_prose(text):
@@ -491,6 +530,10 @@ def lint(text, filename="<stdin>"):
     fence = None
     html_block = None
     in_paragraph = False
+    # content indent of the open list item, so its indented lines are not code
+    list_indent = 0
+    # backtick run length of a code span that is open across lines, or 0
+    open_span = 0
     html_containers = []
     lines = text.splitlines()
     table_cells = _markdown_table_cells(lines)
@@ -506,6 +549,9 @@ def lint(text, filename="<stdin>"):
         block.clear()
 
     for lineno, raw_line in enumerate(lines, 1):
+        was_paragraph = in_paragraph
+        if not raw_line.strip():
+            open_span = 0
         in_html = False
         if fence is None:
             in_html, html_block = _html_block_step(html_block, raw_line, in_paragraph)
@@ -515,7 +561,9 @@ def lint(text, filename="<stdin>"):
         else:
             is_fence, fence = _fence_step(fence, raw_line)
         # A paragraph is open after a line of text that no other block takes.
-        in_paragraph = bool(raw_line.strip() and not in_html and not is_fence and not fence
+        # A line with only quote markers is blank inside its quote.
+        in_paragraph = bool(_strip_quotes(raw_line)[1].strip() and not in_html
+                            and not is_fence and not fence
                             and not NO_PARAGRAPH.match(raw_line))
         if is_fence:
             flush()
@@ -524,6 +572,18 @@ def lint(text, filename="<stdin>"):
             continue
         if fence:
             continue
+        # CommonMark 4.4: an indented code block. It cannot interrupt a paragraph.
+        rest = _strip_quotes(raw_line.expandtabs(4))[1]
+        indent = _indent_width(rest)
+        if rest.strip() and not in_html and not was_paragraph:
+            if indent >= list_indent + 4:
+                in_paragraph = False
+                continue
+            item = LIST_ITEM_INDENT.match(rest)
+            if item:
+                list_indent = len(item.group(0)) if item.group(3) else len(item.group(0)) + 1
+            elif indent < list_indent:
+                list_indent = 0
         if HTML_BLOCK_TAG.match(raw_line.lstrip()):
             for tag in HTML_BLOCK_TAG.finditer(_mask_inline_code(raw_line)):
                 name = tag.group(2).lower()
@@ -555,7 +615,12 @@ def lint(text, filename="<stdin>"):
         in_quote = is_quote
         after_boundary = not raw_line.strip()
         for segment, source_column in segments:
-            line = _mask_non_prose(segment)
+            if is_table or in_html:
+                # a table cell holds its own spans, and an HTML block has none
+                line = _mask_non_prose(segment)
+            else:
+                masked, open_span = _mask_code_spans(segment, open_span, lines[lineno:])
+                line = _mask_non_prose(masked)
             words_total += len(line.split())
             for rule_id, level, pattern, msg in RULES:
                 for m in pattern.finditer(line):
@@ -851,6 +916,23 @@ def selftest():
     assert not any(f["rule"] == "semicolon" for f in findings), findings
     findings, _ = lint("Press [stop](https://x.io); then wait. Use & ; here.")
     assert [f["col"] for f in findings if f["rule"] == "semicolon"] == [27, 46], findings
+    # an indented code block is code, also in a quote and under a list item
+    def semicolon_lines(text):
+        return [f["line"] for f in lint(text)[0] if f["rule"] == "semicolon"]
+    assert semicolon_lines("Intro text.\n\n    x = 1; y = 2\n\tz; w") == []
+    assert semicolon_lines("> Intro.\n>\n>     x = 1; y = 2") == []
+    assert semicolon_lines("- Item.\n\n      x = 1; y = 2") == []
+    # it cannot interrupt a paragraph, and a list item's own indent is prose
+    assert semicolon_lines("Intro text\n    goes on; here.") == [2]
+    assert semicolon_lines("- Item.\n\n    More; text.") == [3]
+    assert semicolon_lines("1. Item.\n\n   - Sub.\n\n     More; text.") == [5]
+    # the list ends at a line with less indent
+    assert semicolon_lines("- Item.\n\nText.\n\n    x; y") == []
+    # a code span may wrap across lines of one paragraph
+    assert semicolon_lines("Run `a;\nb; c` now; then") == [2]
+    assert semicolon_lines("Run ``a`;\nb;`` now.") == []
+    # a run that nothing closes in the paragraph is literal text
+    assert semicolon_lines("A ` mark; here.\n\nAnd ` there; too.") == [1, 3]
     # per-file labels
     findings, _ = lint("a; b", filename="x.md")
     assert findings[0]["file"] == "x.md"
