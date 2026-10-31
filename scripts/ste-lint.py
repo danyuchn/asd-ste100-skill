@@ -292,10 +292,20 @@ HTML_BLOCK_KINDS = [
 # It cannot interrupt a paragraph.
 _ATTRIBUTE = (r"\s+[A-Za-z_:][A-Za-z0-9_.:-]*"
               r"(?:\s*=\s*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?")
+# The names of type 1 (pre, script, style, textarea) never start a type 7 block,
+# as an open tag or as a closing tag. A custom name such as pre-x is no type 1 name.
+_TYPE1_NAME = r"(?!(?i:pre|script|style|textarea)(?![A-Za-z0-9-]))"
 HTML_TYPE7 = re.compile(
-    rf"^ {{0,3}}(?:<[A-Za-z][A-Za-z0-9-]*(?:{_ATTRIBUTE})*\s*/?>|</[A-Za-z][A-Za-z0-9-]*\s*>)\s*$")
-# A heading or a thematic break ends a paragraph and is no paragraph line.
-NO_PARAGRAPH = re.compile(r"^ {0,3}(?:#{1,6}(?:\s|$)|(?:[-*_][ \t]*){3,}$)")
+    rf"^ {{0,3}}(?:<{_TYPE1_NAME}[A-Za-z][A-Za-z0-9-]*(?:{_ATTRIBUTE})*\s*/?>"
+    rf"|</{_TYPE1_NAME}[A-Za-z][A-Za-z0-9-]*\s*>)\s*$")
+# Lines that end a paragraph and are no paragraph line, after the quote prefix: an ATX
+# heading and a thematic break of one repeated character. A quote line with no text
+# also ends a paragraph.
+NO_PARAGRAPH = re.compile(
+    r"^ {0,3}(?:#{1,6}(?:\s|$)|(?:-[ \t]*){3,}$|(?:\*[ \t]*){3,}$|(?:_[ \t]*){3,}$)")
+# A setext underline. It ends a paragraph only when a paragraph is open at the same
+# quote depth. Else it is text, also as a lazy line after a quote (CommonMark 4.3).
+SETEXT_UNDERLINE = re.compile(r"^ {0,3}(?:=+|-+)[ \t]*$")
 
 
 def _html_block_step(block, line, in_paragraph):
@@ -491,6 +501,7 @@ def lint(text, filename="<stdin>"):
     fence = None
     html_block = None
     in_paragraph = False
+    paragraph_depth = 0
     html_containers = []
     lines = text.splitlines()
     table_cells = _markdown_table_cells(lines)
@@ -506,17 +517,29 @@ def lint(text, filename="<stdin>"):
         block.clear()
 
     for lineno, raw_line in enumerate(lines, 1):
+        if _fence_ends_with_quote(fence, raw_line):
+            # The quote that holds the fence ended: judge this line as any other line.
+            fence = None
         in_html = False
         if fence is None:
             in_html, html_block = _html_block_step(html_block, raw_line, in_paragraph)
-        if in_html and _strip_quotes(raw_line.expandtabs(4))[0]:
-            # In an HTML block, ">" is literal text, so it cannot open a quoted fence.
+        if in_html:
+            # An HTML block holds literal text until it ends, so no fence opens in it.
             is_fence = False
         else:
             is_fence, fence = _fence_step(fence, raw_line)
         # A paragraph is open after a line of text that no other block takes.
-        in_paragraph = bool(raw_line.strip() and not in_html and not is_fence and not fence
-                            and not NO_PARAGRAPH.match(raw_line))
+        depth, content = _strip_quotes(raw_line.expandtabs(4))
+        underline = (in_paragraph and depth == paragraph_depth
+                     and SETEXT_UNDERLINE.match(content))
+        was_open = in_paragraph
+        in_paragraph = bool(content.strip() and not in_html and not is_fence and not fence
+                            and not NO_PARAGRAPH.match(content) and not underline)
+        if not in_paragraph:
+            paragraph_depth = 0
+        elif not was_open or depth > paragraph_depth:
+            paragraph_depth = depth
+        # A lazy line with fewer ">" keeps the depth of the paragraph.
         if is_fence:
             flush()
             # A fence inside a quote does not start the quote: an alert marker after it is text.
@@ -717,6 +740,29 @@ def selftest():
                         # attribute values may hold "<" and ">", an invalid attribute is no tag
                         ('<span title="a > b">\n> ```\n> Prose; here.\n> ```', [3]),
                         ("<custom a=>\n> ```\n> a; b\n> ```", []),
+                        # a setext underline, an empty quote line and a thematic break of one
+                        # character end a paragraph, so a type 7 tag after them starts a block
+                        ("Title\n=====\n<custom>\n> ```\n> Prose; here.\n> ```\n</custom>", [5]),
+                        ("> Quote.\n>\n<custom>\n> ```\n> Prose; here.\n> ```\n</custom>", [5]),
+                        ("-*-\n<custom>\n> ```\n> a; b\n> ```", []),
+                        ("Title\n-\n<custom>\n> ```\n> Prose; here.\n> ```\n</custom>", [5]),
+                        ("> Quote.\n> >\n<custom>\n> ```\n> Prose; here.\n> ```\n</custom>", [5]),
+                        # an underline with no paragraph, or as a lazy line, is text
+                        ("Intro.\n\n==\n<custom>\n> ```\n> a; b\n> ```", []),
+                        ("> Title\n===\n<custom>\n> ```\n> a; b\n> ```", []),
+                        ("> > Title\n> lazy\n> ===\n<custom>\n> ```\n> a; b\n> ```", []),
+                        # a quoted heading or thematic break is no paragraph line
+                        ("> # Note\n> ===\n<custom>\n> ```\n> a; b\n> ```", []),
+                        ("> Note\n> ***\n<custom>\n> ```\n> Prose; here.\n> ```\n</custom>", [5]),
+                        # the line that ends a quoted fence can start an HTML block
+                        ("> ```\n> x\n<custom>\n> ```\n> Prose; here.", [5]),
+                        # a type 1 name is no type 7 tag
+                        ("<pre/>\n> ```\n> a; b\n> ```", []),
+                        ("</pre>\n> ```\n> a; b\n> ```", []),
+                        ("<pre-x>\n> ```\n> Prose; here.\n> ```", [3]),
+                        # no fence opens in an HTML block, also without ">"
+                        ("<pre>\n```\nsample\n</pre>\n\nThe paragraph is here; it must be checked.", [6]),
+                        ("<div>\n```\n\nProse; here.", [4]),
                         ("<DIV class=x>text\n> ```\n> Prose; here.\n> ```", [3])):
         findings, _ = lint(text)
         assert [f["line"] for f in findings if f["rule"] == "semicolon"] == lines, (text, findings)
@@ -907,10 +953,14 @@ def selftest():
     assert not any(f["rule"] == "long-sentence" for f in findings), findings
     # An inner close or a fenced closing tag must not close the outer container.
     for content in ("<details>\n<div>\n</div>",
-                    "<details>\n~~~\n</details>\n~~~"):
+                    "<details>\n\n~~~\n</details>\n~~~"):
         findings, _ = lint(f"{content}\n\n> [!NOTE]\n> {body}\n\n</details>")
         long_sentences = [f for f in findings if f["rule"] == "long-sentence"]
         assert [f["match"] for f in long_sentences] == ["26 words"], (content, findings)
+    # Directly after <details>, ~~~ is HTML text, not a fence. So the </details> line after
+    # it closes the container, and the alert after it is outside, as GitHub shows it.
+    findings, _ = lint(f"<details>\n~~~\n</details>\n~~~\n\n> [!NOTE]\n> {body}\n\n</details>")
+    assert not any(f["rule"] == "long-sentence" for f in findings), findings
     # Fenced, commented, inline, void, and self-closing tags do not open containers.
     for content in ("```html\n<details>\n```", "<!-- <details> -->",
                     "<span>Text.</span>", "<hr>", "<div />",
