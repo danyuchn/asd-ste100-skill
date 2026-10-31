@@ -35,10 +35,12 @@ IRREGULAR_PARTICIPLES = "given|taken|made|done|found|seen|known|shown|written|bu
 # Preserve the original passive heuristic; perfects also include intransitive verbs.
 PASSIVE_PARTICIPLES = "given|taken|made|done|found|seen|known|shown|written|built|sent|set|run|read|kept|held|left|put"
 # Up to two words may stand between the modal and "have": "may not",
-# "might already", "could not possibly".
+# "might already", "could not possibly", "may very well".
 MODAL_PERFECT_PREFIX = re.compile(
-    r"\b(?:may|might|could|should|would|must|can|will|shall)(?:n['’]t)?"
-    r"(?:\s+(?:not|already|also|ever|even|just|never|still|\w+ly)){0,2}\s+$", re.I,
+    r"\b(?:(?:may|might|could|should|would|must|can|will|shall)(?:n['’]t)?"
+    r"|cannot|can['’]t|won['’]t|shan['’]t)"
+    r"(?:\s+(?:not|already|also|ever|even|just|never|still|very|well|\w+ly)){0,2}\s+$",
+    re.I,
 )
 
 RULES = [
@@ -559,9 +561,9 @@ def lint(text, filename="<stdin>"):
             words_total += len(line.split())
             for rule_id, level, pattern, msg in RULES:
                 for m in pattern.finditer(line):
-                    if rule_id == "present-perfect" and MODAL_PERFECT_PREFIX.search(
-                        line[:m.start()]
-                    ):
+                    # the modal may end the line before: "may" / "have failed"
+                    before = (block[-1][2] + " " if block else "") + line[:m.start()]
+                    if rule_id == "present-perfect" and MODAL_PERFECT_PREFIX.search(before):
                         continue
                     findings.append({"file": filename, "line": lineno,
                                      "col": source_column + m.start() + 1,
@@ -646,6 +648,13 @@ def selftest():
     findings, _ = lint("It might already have finished. It could not possibly have run. "
                        "It may never have started. It should probably have stopped.")
     assert not any(f["rule"] == "present-perfect" for f in findings), findings
+    findings, _ = lint("It cannot have run. It won't have finished. It can't have stopped. "
+                       "It may well have failed. It may very well have failed.\n\n"
+                       "The request may\nhave failed.")
+    assert not any(f["rule"] == "present-perfect" for f in findings), findings
+    # a modal in an earlier paragraph does not protect the next one
+    findings, _ = lint("It may\n\nhave failed.")
+    assert sum(f["rule"] == "present-perfect" for f in findings) == 1, findings
     # an adverb without a modal is not a hedge
     findings, _ = lint("The task already has run. They probably have finished.")
     assert sum(f["rule"] == "present-perfect" for f in findings) == 2, findings
