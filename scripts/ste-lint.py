@@ -21,6 +21,7 @@ import bisect
 import contextlib
 import html.entities
 import io
+import itertools
 import json
 import os
 import re
@@ -172,9 +173,12 @@ def _breaks_paragraph(prev, line):
             or _is_leaf_line(prev) or _is_leaf_line(line))
 
 
-def _closes_later(run, lines, prev):
-    """True when a backtick run of length RUN is in LINES in the paragraph of PREV."""
-    for line in lines:
+def _closes_later(run, lines, start, prev):
+    """True when a backtick run of length RUN is in LINES[START:] in the paragraph of PREV."""
+    # ponytail: scans to the paragraph end for each unclosed run, so a single
+    # paragraph of N lines with N unclosed runs costs O(N^2). Memoize per length if that shows up.
+    for index in range(start, len(lines)):
+        line = lines[index]
         if _breaks_paragraph(prev, line):
             return False
         if any(len(m.group()) == run for m in BACKTICK_RUN.finditer(line)):
@@ -183,11 +187,11 @@ def _closes_later(run, lines, prev):
     return False
 
 
-def _mask_code_spans(line, open_run, later_lines, depth=0, skip=0, carry=None):
+def _mask_code_spans(line, open_run, lines, next_index=0, depth=0, skip=0, carry=None):
     """Blank the code spans in LINE, also a span that wraps across lines.
 
     OPEN_RUN is the backtick run length of a span still open from an earlier
-    line, or 0. LATER_LINES are the lines after LINE. As in CommonMark 6.1, a
+    line, or 0. LINES[NEXT_INDEX:] are the lines after LINE. As in CommonMark 6.1, a
     span ends at the next run of the same length, and a run that no later run
     in the paragraph closes is literal text. Outside code spans, fill inline
     link destinations with underscores. What starts first wins: a code span
@@ -213,7 +217,7 @@ def _mask_code_spans(line, open_run, later_lines, depth=0, skip=0, carry=None):
             k += 1
             if pos - 2 < done:
                 continue
-            link = _link_destination_end(line, pos, later_lines, depth)
+            link = _link_destination_end(line, pos, itertools.islice(lines, next_index, None), depth)
             if link is not None and link[0] > pos:
                 masked[pos:link[0]] = "_" * (link[0] - pos)
                 done = link[1]
@@ -232,7 +236,7 @@ def _mask_code_spans(line, open_run, later_lines, depth=0, skip=0, carry=None):
         if run.start() < done:
             continue  # a backtick in a link is text
         if (any(len(r.group()) == n for r in runs[i + 1:])
-                or _closes_later(n, later_lines, line)):
+                or _closes_later(n, lines, next_index, line)):
             start, open_run = run.start(), n
     if start is not None:
         masked[start:] = " " * (len(line) - start)
@@ -912,7 +916,7 @@ def lint(text, filename="<stdin>"):
     span = 0
     values = [piece[2] for piece in description]
     for position, (index, column, value) in enumerate(description):
-        masked, span = _mask_code_spans(value, span, values[position + 1:])
+        masked, span = _mask_code_spans(value, span, values, position + 1)
         check(index + 1, value, column, _mask_non_prose(masked), 0, False)
     flush()
 
@@ -1024,7 +1028,7 @@ def lint(text, filename="<stdin>"):
                 elif link_end and link_end[0] == lineno:
                     skip = link_end[1]
                 carry = []
-                masked, open_span = _mask_code_spans(segment, open_span, lines[lineno:],
+                masked, open_span = _mask_code_spans(segment, open_span, lines, lineno,
                                                      paragraph_depth if in_paragraph else None,
                                                      skip, carry)
                 if carry:
@@ -1428,6 +1432,9 @@ def selftest():
     assert semicolon_lines("- Run `a;\n  b` now.\n") == []
     assert semicolon_lines("> Run `a;\n> b` now.\n") == []
     assert semicolon_lines("Run ``a`;\nb;`` now.\n- Next `x;` y.") == []
+    # the lookahead starts at the given index of the shared line list, with no slice
+    assert _mask_code_spans("a ` b;", 0, ["x ` y", "", "e ` f"], 1) == ("a ` b;", 0)
+    assert _mask_code_spans("a ` b;", 0, ["x ` y", "", "e ` f"], 0) == ("a     ", 1)
     # per-file labels
     findings, _ = lint("a; b", filename="x.md")
     assert findings[0]["file"] == "x.md"
