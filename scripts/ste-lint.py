@@ -946,15 +946,19 @@ def lint(text, filename="<stdin>"):
         # CommonMark 4.4: an indented code block. It cannot interrupt a paragraph.
         rest = _strip_quotes(raw_line.expandtabs(4))[1]
         indent = _indent_width(rest)
-        if rest.strip() and not in_html and not was_paragraph:
+        if rest.strip() and not in_html:
             if indent >= list_indent + 4:
-                in_paragraph = False
-                continue
-            item = LIST_ITEM_INDENT.match(rest)
-            if item:
-                list_indent = len(item.group(0)) if item.group(3) else len(item.group(0)) + 1
-            elif indent < list_indent:
-                list_indent = 0
+                if not was_paragraph:
+                    in_paragraph = False
+                    continue
+            else:
+                # An item line sets the content indent also after a text line or
+                # in a tight list. A lazy line does not end the item.
+                item = LIST_ITEM_INDENT.match(rest)
+                if item:
+                    list_indent = len(item.group(0)) if item.group(3) else len(item.group(0)) + 1
+                elif indent < list_indent and not was_paragraph:
+                    list_indent = 0
         if HTML_BLOCK_TAG.match(raw_line.lstrip()):
             for tag in HTML_BLOCK_TAG.finditer(_mask_inline_code(raw_line)):
                 name = tag.group(2).lower()
@@ -1377,6 +1381,13 @@ def selftest():
     assert semicolon_lines("1. Item.\n\n   - Sub.\n\n     More; text.") == [5]
     # the list ends at a line with less indent
     assert semicolon_lines("- Item.\n\nText.\n\n    x; y") == []
+    # a list item that follows a text line, or a nested item in a tight list, still
+    # sets the content indent, so its indented continuation paragraph is prose
+    assert semicolon_lines("Steps to follow:\n- Open the file.\n\n    Then save it; close it.\n") == [4]
+    assert semicolon_lines("- Open the file.\n  - Pick a row.\n\n      Then save it; close it.\n") == [4]
+    assert semicolon_lines("- Item\ncontinued\n\n    More; text.") == [4]
+    assert semicolon_lines("Intro text.\n\n    x = 1; y = 2\n") == []
+    assert semicolon_lines("Steps:\n- Open the file.\n\n      x = 1; y = 2\n") == []
     # a code span may wrap across lines of one paragraph
     assert semicolon_lines("Run `a;\nb; c` now; then") == [2]
     assert semicolon_lines("Run ``a`;\nb;`` now.") == []
