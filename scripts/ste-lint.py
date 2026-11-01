@@ -152,13 +152,34 @@ def _mask_inline_code(text):
     return INLINE_CODE.sub(lambda match: " " * len(match.group(0)), text)
 
 
-def _closes_later(run, lines):
-    """True when a backtick run of length RUN is in LINES before a blank line."""
+def _is_leaf_line(line):
+    """True when LINE is a heading, thematic break, HTML line, or fence delimiter.
+
+    No paragraph text continues such a line.
+    """
+    return bool(STANDALONE_LINE.match(_strip_quotes(line)[1]) or _fence_step(None, line)[0])
+
+
+def _breaks_paragraph(prev, line):
+    """True when LINE cannot continue the paragraph that PREV is in.
+
+    A code span ends there too (CommonMark 6.1): a blank or quote-only line,
+    a list item, a heading, a thematic break, a fence, or another quote depth.
+    """
+    depth, rest = _strip_quotes(line)
+    return (not rest.strip() or bool(ANY_LIST_ITEM.match(rest))
+            or depth != _strip_quotes(prev)[0]
+            or _is_leaf_line(prev) or _is_leaf_line(line))
+
+
+def _closes_later(run, lines, prev):
+    """True when a backtick run of length RUN is in LINES in the paragraph of PREV."""
     for line in lines:
-        if not line.strip():
+        if _breaks_paragraph(prev, line):
             return False
         if any(len(m.group()) == run for m in BACKTICK_RUN.finditer(line)):
             return True
+        prev = line
     return False
 
 
@@ -211,7 +232,7 @@ def _mask_code_spans(line, open_run, later_lines, depth=0, skip=0, carry=None):
         if run.start() < done:
             continue  # a backtick in a link is text
         if (any(len(r.group()) == n for r in runs[i + 1:])
-                or _closes_later(n, later_lines)):
+                or _closes_later(n, later_lines, line)):
             start, open_run = run.start(), n
     if start is not None:
         masked[start:] = " " * (len(line) - start)
@@ -897,7 +918,7 @@ def lint(text, filename="<stdin>"):
 
     for lineno, raw_line in enumerate(lines, 1):
         was_paragraph = in_paragraph
-        if not raw_line.strip():
+        if open_span and _breaks_paragraph(lines[lineno - 2], raw_line):
             open_span = 0
         if _fence_ends_with_quote(fence, raw_line):
             # The quote that holds the fence ended: judge this line as any other line.
@@ -1393,6 +1414,20 @@ def selftest():
     assert semicolon_lines("Run ``a`;\nb;`` now.") == []
     # a run that nothing closes in the paragraph is literal text
     assert semicolon_lines("A ` mark; here.\n\nAnd ` there; too.") == [1, 3]
+    # a code span never crosses a block boundary: a new list item, a heading,
+    # a fence, a quote-only line, or a change of quote depth
+    assert semicolon_lines("- Press the ` key; it opens.\n- Run `x` now.\n") == [1]
+    assert semicolon_lines("Press the ` key; it opens.\n# Run `x` now\n") == [1]
+    assert semicolon_lines("Type ` to start; then stop.\n```\ncode\n```\nThe ` mark ends it.\n") == [1]
+    assert semicolon_lines("> A ` mark; here.\n>\n> And ` there; too.\n") == [1, 3]
+    assert semicolon_lines("# Title ` x\nText; with ` more\n") == [2]
+    assert semicolon_lines("A ` mark; here.\n---\nAnd ` there; too.") == [1, 3]
+    assert semicolon_lines("> A ` mark; here.\n> > And ` there; too.") == [1, 2]
+    # a span still wraps inside a list item and a quote, also with a double run
+    assert semicolon_lines("Run `a;\nb` now.\n") == []
+    assert semicolon_lines("- Run `a;\n  b` now.\n") == []
+    assert semicolon_lines("> Run `a;\n> b` now.\n") == []
+    assert semicolon_lines("Run ``a`;\nb;`` now.\n- Next `x;` y.") == []
     # per-file labels
     findings, _ = lint("a; b", filename="x.md")
     assert findings[0]["file"] == "x.md"
