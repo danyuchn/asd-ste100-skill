@@ -893,7 +893,7 @@ def lint(text, filename="<stdin>"):
         for rule_id, level, pattern, msg in RULES:
             for m in pattern.finditer(line):
                 # the modal may end the line before: "may" / "have failed"
-                before = (block[-1][2] + " " if block else "") + line[:m.start()]
+                before = (block[-1][2] + " " if block else "") + line[skip:m.start()]
                 if rule_id == "present-perfect" and MODAL_PERFECT_PREFIX.search(before):
                     continue
                 findings.append({"file": filename, "line": lineno,
@@ -1112,6 +1112,14 @@ def selftest():
     # a modal in an earlier paragraph does not protect the next one
     findings, _ = lint("It may\n\nhave failed.")
     assert sum(f["rule"] == "present-perfect" for f in findings) == 1, findings
+    # the quote prefix and the list marker are markup: a modal at the end of the
+    # line before still protects the perfect, also in a quote and in a list
+    for text in ("> It may\n> have failed.", "> > It may\n> > have failed.",
+                 "It may\nhave failed.", "- It may\n  have run.", "> - It may\n>   have run."):
+        findings, _ = lint(text)
+        assert not any(f["rule"] == "present-perfect" for f in findings), (text, findings)
+    findings, _ = lint("> It may\n>\n> have failed.")
+    assert [f["line"] for f in findings if f["rule"] == "present-perfect"] == [3], findings
     # an adverb without a modal is not a hedge
     findings, _ = lint("The task already has run. They probably have finished.")
     assert sum(f["rule"] == "present-perfect" for f in findings) == 2, findings
