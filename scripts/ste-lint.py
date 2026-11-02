@@ -153,41 +153,55 @@ def _mask_inline_code(text):
     return INLINE_CODE.sub(lambda match: " " * len(match.group(0)), text)
 
 
-def _is_leaf_line(line):
-    """True when LINE is a heading, thematic break, HTML line, or fence delimiter.
+def _list_item(rest, list_indent, in_paragraph):
+    """Return the match of the list item that starts REST, or None (CommonMark 5.2).
 
-    No paragraph text continues such a line.
+    REST is a line after its quote prefix. In a paragraph, an item to the left of
+    LIST_INDENT is the next item of the open list. A new list there starts only
+    with a bullet or "1" and some text, and not as indented code.
     """
-    return bool(STANDALONE_LINE.match(_strip_quotes(line)[1]) or _fence_step(None, line)[0])
+    item = LIST_ITEM_INDENT.match(rest)
+    if not item or not in_paragraph or len(item.group(1)) < list_indent:
+        return item
+    marker = item.group(2)
+    if (len(item.group(1)) < list_indent + 4 and rest[item.end():].strip()
+            and (marker in "-*+" or int(marker[:-1]) == 1)):
+        return item
+    return None
 
 
-def _breaks_paragraph(prev, line):
-    """True when LINE cannot continue the paragraph that PREV is in.
+def _breaks_paragraph(depth, line, list_indent):
+    """True when LINE ends a paragraph at quote DEPTH, as the main loop ends it.
 
-    A code span ends there too (CommonMark 6.1): a blank or quote-only line,
-    a list item, a heading, a thematic break, a fence, or another quote depth.
+    These lines end it (CommonMark 4-5): a blank or quote-only line, a deeper quote,
+    a heading, a thematic break, a setext underline, a fence, an HTML block of
+    types 1 to 6, and a list item that can interrupt a paragraph. A text line with
+    fewer ">" is a lazy line and continues the paragraph. A code span ends there too.
     """
-    depth, rest = _strip_quotes(line)
-    return (not rest.strip() or bool(ANY_LIST_ITEM.match(rest))
-            or depth != _strip_quotes(prev)[0]
-            or _is_leaf_line(prev) or _is_leaf_line(line))
+    line_depth, rest = _strip_quotes(line.expandtabs(4))
+    return (not rest.strip() or line_depth > depth
+            or bool(NO_PARAGRAPH.match(rest) or _fence_step(None, line)[0]
+                    or (line_depth == depth and SETEXT_UNDERLINE.match(rest))
+                    or any(start.match(rest) for start, _ in HTML_BLOCK_KINDS)
+                    or _list_item(rest, list_indent, True)))
 
 
-def _closes_later(run, lines, start, prev):
-    """True when a backtick run of length RUN is in LINES[START:] in the paragraph of PREV."""
-    # ponytail: scans to the paragraph end for each unclosed run, so a single
-    # paragraph of N lines with N unclosed runs costs O(N^2). Memoize per length if that shows up.
-    for index in range(start, len(lines)):
-        line = lines[index]
-        if _breaks_paragraph(prev, line):
-            return False
-        if any(len(m.group()) == run for m in BACKTICK_RUN.finditer(line)):
-            return True
-        prev = line
-    return False
+def _paragraph_runs(lines, start, depth, list_indent):
+    """Return (end, last) for the paragraph that continues at LINES[START].
+
+    END is the index of the line that ends it. LAST maps each backtick run length
+    to the index of its last line before END. One scan serves every run in the
+    paragraph, so the cost stays linear in the line count.
+    """
+    last, end = {}, start
+    while end < len(lines) and not _breaks_paragraph(depth, lines[end], list_indent):
+        for run in BACKTICK_RUN.finditer(lines[end]):
+            last[len(run.group())] = end
+        end += 1
+    return end, last
 
 
-def _mask_code_spans(line, open_run, lines, next_index=0, depth=0, skip=0, carry=None):
+def _mask_code_spans(line, open_run, closes_later, lines=(), next_index=0, depth=0, skip=0, carry=None):
     """Blank the code spans in LINE, also a span that wraps across lines.
 
     OPEN_RUN is the backtick run length of a span still open from an earlier
@@ -236,7 +250,7 @@ def _mask_code_spans(line, open_run, lines, next_index=0, depth=0, skip=0, carry
         if run.start() < done:
             continue  # a backtick in a link is text
         if (any(len(r.group()) == n for r in runs[i + 1:])
-                or _closes_later(n, lines, next_index, line)):
+                or closes_later(n)):
             start, open_run = run.start(), n
     if start is not None:
         masked[start:] = " " * (len(line) - start)
@@ -883,6 +897,9 @@ def lint(text, filename="<stdin>"):
     in_quote = False
     after_boundary = True
 
+    # the end index and backtick run index of the paragraph that holds the current line
+    span_end, span_runs = -1, {}
+
     def flush():
         findings.extend(_long_sentence_findings(block, filename))
         block.clear()
@@ -916,13 +933,22 @@ def lint(text, filename="<stdin>"):
     span = 0
     values = [piece[2] for piece in description]
     for position, (index, column, value) in enumerate(description):
-        masked, span = _mask_code_spans(value, span, values, position + 1)
+        masked, span = _mask_code_spans(value, span, lambda run: any(len(m.group()) == run for later in values[position + 1:] for m in BACKTICK_RUN.finditer(later)), values, position + 1)
         check(index + 1, value, column, _mask_non_prose(masked), 0, False)
     flush()
+    def closes_later(run):
+        """True when a run of length RUN closes a span on a later line of this paragraph."""
+        nonlocal span_end, span_runs
+        if not in_paragraph:
+            return False
+        if lineno > span_end:
+            span_end, span_runs = _paragraph_runs(lines, lineno, paragraph_depth, list_indent)
+        return span_runs.get(run, -1) >= lineno
 
     for lineno, raw_line in enumerate(lines, 1):
         was_paragraph = in_paragraph
-        if open_span and _breaks_paragraph(lines[lineno - 2], raw_line):
+        if open_span and (not was_paragraph
+                          or _breaks_paragraph(paragraph_depth, raw_line, list_indent)):
             open_span = 0
         if _fence_ends_with_quote(fence, raw_line):
             # The quote that holds the fence ended: judge this line as any other line.
@@ -981,7 +1007,7 @@ def lint(text, filename="<stdin>"):
             else:
                 # An item line sets the content indent also after a text line or
                 # in a tight list. A lazy line does not end the item.
-                item = LIST_ITEM_INDENT.match(rest)
+                item = _list_item(rest, list_indent, was_paragraph)
                 if item:
                     list_indent = len(item.group(0)) if item.group(3) else len(item.group(0)) + 1
                 elif indent < list_indent and not was_paragraph:
@@ -1022,7 +1048,7 @@ def lint(text, filename="<stdin>"):
                 line = _mask_non_prose(segment)
             elif is_table:
                 # a table cell holds its own spans and links
-                line = _mask_non_prose(_mask_code_spans(segment, 0, ())[0])
+                line = _mask_non_prose(_mask_code_spans(segment, 0, lambda run: False)[0])
             else:
                 skip = 0
                 if link_end and link_end[0] > lineno:
@@ -1030,7 +1056,7 @@ def lint(text, filename="<stdin>"):
                 elif link_end and link_end[0] == lineno:
                     skip = link_end[1]
                 carry = []
-                masked, open_span = _mask_code_spans(segment, open_span, lines, lineno,
+                masked, open_span = _mask_code_spans(segment, open_span, closes_later, lines, lineno,
                                                      paragraph_depth if in_paragraph else None,
                                                      skip, carry)
                 if carry:
@@ -1038,7 +1064,7 @@ def lint(text, filename="<stdin>"):
                 elif link_end and link_end[0] <= lineno:
                     link_end = None
                 line = _mask_non_prose(masked)
-            # the blockquote prefix and the list marker are markup, not words in the sentence
+            # The blockquote prefix and list marker are markup.
             skip = quote.end() if quote and not is_table else 0
             marker = None if is_table else ANY_LIST_ITEM.match(segment[skip:])
             if marker:
@@ -1425,6 +1451,13 @@ def selftest():
     assert semicolon_lines("- Item\ncontinued\n\n    More; text.") == [4]
     assert semicolon_lines("Intro text.\n\n    x = 1; y = 2\n") == []
     assert semicolon_lines("Steps:\n- Open the file.\n\n      x = 1; y = 2\n") == []
+    # in a paragraph, only a bullet or "1." with text starts a list, so its indent
+    # does not apply after "2." or an empty bullet
+    assert semicolon_lines("Intro\n2. item\n\n    x = 1; y = 2") == []
+    assert semicolon_lines("Intro\n*\n\n    x = 1; y = 2") == []
+    assert semicolon_lines("Intro\n1. item\n\n    Then save it; close it.") == [4]
+    # a lazy line keeps the nested item open, so its paragraph after a blank line is prose
+    assert semicolon_lines("- outer\n  - nested\n  outer again\n\n      Save it; close it.") == [5]
     # a code span may wrap across lines of one paragraph
     assert semicolon_lines("Run `a;\nb; c` now; then") == [2]
     assert semicolon_lines("Run ``a`;\nb;`` now.") == []
@@ -1444,9 +1477,23 @@ def selftest():
     assert semicolon_lines("- Run `a;\n  b` now.\n") == []
     assert semicolon_lines("> Run `a;\n> b` now.\n") == []
     assert semicolon_lines("Run ``a`;\nb;`` now.\n- Next `x;` y.") == []
-    # the lookahead starts at the given index of the shared line list, with no slice
-    assert _mask_code_spans("a ` b;", 0, ["x ` y", "", "e ` f"], 1) == ("a ` b;", 0)
-    assert _mask_code_spans("a ` b;", 0, ["x ` y", "", "e ` f"], 0) == ("a     ", 1)
+    # a line ends a span only where it ends the paragraph: "#" with no space is text,
+    # a lazy line with fewer ">" continues the quote, "2." cannot start a list in a
+    # paragraph, and inline HTML is text
+    for text in ("A `foo;\n#bar`; done.", "> Run `code;\ncontinued` text; here.",
+                 "Run `code;\n2. continued` text; here.",
+                 "Run `code;\n#hashtag continued` text; here.",
+                 "Run `code;\n<span>continued` text; here.",
+                 "> > Run `code;\n> lazy\n> > continued` text; here."):
+        assert semicolon_lines(text) == [text.count("\n") + 1], text
+    # a next item of the open list, a setext underline, and an HTML block end the span
+    assert semicolon_lines("1. Run `a;\n2. b` now; x") == [1, 2]
+    assert semicolon_lines("Run `a;\n===\nb` now; x") == [1, 3]
+    assert semicolon_lines("Run `a;\n<div>\n\nb` now; x") == [1, 4]
+    # one scan of the paragraph finds the last line of each run length
+    assert _paragraph_runs(["x ` y", "a `` b ` c", "", "e ` f"], 0, 0, 0) == (2, {1: 1, 2: 1})
+    assert _mask_code_spans("a ` b;", 0, lambda run: False) == ("a ` b;", 0)
+    assert _mask_code_spans("a ` b;", 0, lambda run: run == 1) == ("a     ", 1)
     # per-file labels
     findings, _ = lint("a; b", filename="x.md")
     assert findings[0]["file"] == "x.md"
