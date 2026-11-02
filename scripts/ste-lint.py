@@ -89,7 +89,7 @@ CODE_FENCE = re.compile(r"^(`{3,}|~{3,})")
 INLINE_CODE = re.compile(r"`[^`]*`")
 BACKTICK_RUN = re.compile(r"`+")
 # A list item start at any indent, to find the content indent of its item.
-LIST_ITEM_INDENT = re.compile(r"^( *)([-*+]|[0-9]+[.)])( +|$)")
+LIST_ITEM_INDENT = re.compile(r"^( *)([-*+]|[0-9]{1,9}[.)])( +|$)")
 # Markup that is not prose: character references (&nbsp; &#39; &#x2192;) and
 # autolinks (<https://...>). Inline link destinations ("](url") are found by
 # _link_destination_end. A reference is markup only when GitHub reads it as one.
@@ -156,10 +156,14 @@ def _mask_inline_code(text):
 def _list_item(rest, list_indent, in_paragraph):
     """Return the match of the list item that starts REST, or None (CommonMark 5.2).
 
-    REST is a line after its quote prefix. In a paragraph, an item to the left of
-    LIST_INDENT is the next item of the open list. A new list there starts only
-    with a bullet or "1" and some text, and not as indented code.
+    REST is a line after its quote prefix. A thematic break such as "* * *" is no
+    item. IN_PARAGRAPH: the line would otherwise continue a paragraph in the same
+    quote. Then an item to the left of LIST_INDENT is the next item of the open
+    list, and a new list starts only with a bullet or "1" and some text, and not
+    as indented code.
     """
+    if NO_PARAGRAPH.match(rest):
+        return None
     item = LIST_ITEM_INDENT.match(rest)
     if not item or not in_paragraph or len(item.group(1)) < list_indent:
         return item
@@ -174,16 +178,19 @@ def _breaks_paragraph(depth, line, list_indent):
     """True when LINE ends a paragraph at quote DEPTH, as the main loop ends it.
 
     These lines end it (CommonMark 4-5): a blank or quote-only line, a deeper quote,
-    a heading, a thematic break, a setext underline, a fence, an HTML block of
-    types 1 to 6, and a list item that can interrupt a paragraph. A text line with
-    fewer ">" is a lazy line and continues the paragraph. A code span ends there too.
+    a heading, a thematic break, a setext underline in the open item, a fence that is
+    no indented code, an HTML block of types 1 to 6, and a list item that can
+    interrupt a paragraph. A text line with fewer ">" is a lazy line and continues
+    the paragraph, but any list item there ends it. A code span ends there too.
     """
     line_depth, rest = _strip_quotes(line.expandtabs(4))
+    in_item = _indent_width(rest) >= list_indent
     return (not rest.strip() or line_depth > depth
-            or bool(NO_PARAGRAPH.match(rest) or _fence_step(None, line)[0]
-                    or (line_depth == depth and SETEXT_UNDERLINE.match(rest))
+            or bool(NO_PARAGRAPH.match(rest)
+                    or (_fence_step(None, line)[0] and _indent_width(rest) < list_indent + 4)
+                    or (line_depth == depth and in_item and SETEXT_UNDERLINE.match(rest))
                     or any(start.match(rest) for start, _ in HTML_BLOCK_KINDS)
-                    or _list_item(rest, list_indent, True)))
+                    or _list_item(rest, list_indent, line_depth == depth)))
 
 
 def _paragraph_runs(lines, start, depth, list_indent):
@@ -978,17 +985,21 @@ def lint(text, filename="<stdin>"):
         # The paragraph state reads the line after its quote prefix, so a line with only
         # quote markers is blank inside its quote.
         depth, unquoted = _strip_quotes(raw_line.expandtabs(4))
-        # a deeper quote starts a new paragraph, so the text before it is no context
-        deeper_quote = depth > paragraph_depth
+        prev_depth = paragraph_depth
+        # an underline left of the open item's content is a lazy line, not an underline
         underline = (in_paragraph and depth == paragraph_depth
+                     and _indent_width(unquoted) >= list_indent
                      and SETEXT_UNDERLINE.match(unquoted))
         in_paragraph = bool(unquoted.strip() and not in_html and not is_fence and not fence
                             and not NO_PARAGRAPH.match(unquoted) and not underline)
         if not in_paragraph:
             paragraph_depth = 0
-        elif not was_paragraph or depth > paragraph_depth:
+        elif (not was_paragraph or depth > paragraph_depth
+              or (depth < paragraph_depth
+                  and _breaks_paragraph(paragraph_depth, raw_line, list_indent))):
             paragraph_depth = depth
-        # A lazy line with fewer ">" keeps the depth of the paragraph.
+        # A lazy line with fewer ">" keeps the depth of the paragraph. A list item
+        # with fewer ">" is no lazy line: it ends the quote and starts a paragraph.
         if is_fence:
             flush()
             # A fence inside a quote does not start the quote: an alert marker after it is text.
@@ -1007,10 +1018,11 @@ def lint(text, filename="<stdin>"):
             else:
                 # An item line sets the content indent also after a text line or
                 # in a tight list. A lazy line does not end the item.
-                item = _list_item(rest, list_indent, was_paragraph)
+                item = _list_item(rest, list_indent, was_paragraph and depth == prev_depth)
                 if item:
                     list_indent = len(item.group(0)) if item.group(3) else len(item.group(0)) + 1
-                elif indent < list_indent and not was_paragraph:
+                elif indent < list_indent and not (was_paragraph and in_paragraph):
+                    # only a lazy text line keeps the item open, not a heading or a break
                     list_indent = 0
         if HTML_BLOCK_TAG.match(raw_line.lstrip()):
             for tag in HTML_BLOCK_TAG.finditer(_mask_inline_code(raw_line)):
@@ -1038,7 +1050,9 @@ def lint(text, filename="<stdin>"):
                  and GITHUB_ALERT.fullmatch(content.strip()))
         standalone = STANDALONE_LINE.match(content) or alert
         if (is_table or not content.strip() or standalone
-                or ANY_LIST_ITEM.match(content) or is_quote != in_quote or deeper_quote):
+                or ANY_LIST_ITEM.match(content) or is_quote != in_quote
+                # a deeper quote starts a new paragraph, so the text before it is no context
+                or depth > prev_depth):
             flush()
         in_quote = is_quote
         after_boundary = not raw_line.strip()
@@ -1456,6 +1470,14 @@ def selftest():
     assert semicolon_lines("Intro\n2. item\n\n    x = 1; y = 2") == []
     assert semicolon_lines("Intro\n*\n\n    x = 1; y = 2") == []
     assert semicolon_lines("Intro\n1. item\n\n    Then save it; close it.") == [4]
+    # after a quote, any number starts a list; a thematic break and a number of ten
+    # digits start none, and a very long number does not stop the run
+    assert semicolon_lines("> Intro\n2. item\n\n    Then save it; close it.") == [4]
+    assert semicolon_lines("Intro text.\n* * *\n    x = 1; y = 2") == []
+    assert semicolon_lines("Text\n* * *\n\n    x = 1; y = 2") == []
+    assert semicolon_lines("* * *\n  cont; `\n2. it; `") == [2]
+    assert semicolon_lines("1234567890. item\n\n    x = 1; y = 2") == []
+    assert semicolon_lines("Intro\n" + "1" * 5000 + ". digits; here.") == [2]
     # a lazy line keeps the nested item open, so its paragraph after a blank line is prose
     assert semicolon_lines("- outer\n  - nested\n  outer again\n\n      Save it; close it.") == [5]
     # a code span may wrap across lines of one paragraph
@@ -1490,6 +1512,26 @@ def selftest():
     assert semicolon_lines("1. Run `a;\n2. b` now; x") == [1, 2]
     assert semicolon_lines("Run `a;\n===\nb` now; x") == [1, 3]
     assert semicolon_lines("Run `a;\n<div>\n\nb` now; x") == [1, 4]
+    assert semicolon_lines("Run `a;\n<div>\nb` now; x") == [1, 3]
+    assert semicolon_lines("# Run `a;\nb` x;") == [1, 2]
+    # a lazy underline, a fence or an item that is indented code, and a tab after ">"
+    assert semicolon_lines("> Run `a;\n===\nb` x;") == [3]
+    assert semicolon_lines("- Run `a;\n===\nb` now; x") == [3]
+    assert semicolon_lines("1. Press the ` key; it opens.\n===\nUse `x` here.") == []
+    assert semicolon_lines("- item; `\n===\ntext; `") == [1]
+    # a thematic break is no lazy line: it ends the item, so deeper text after it is code
+    assert semicolon_lines("- Item; here.\n* * *\n    x = 1; y = 2") == [1]
+    assert semicolon_lines("Run `a;\n    ```\nb` x;") == []
+    assert semicolon_lines("Run `a;\n    - b` x;") == [2]
+    assert semicolon_lines("> Run `a;\n>\t- b` x;") == [1, 2]
+    # any list item after a quote ends the quote: it is no lazy line
+    assert semicolon_lines("> Press the ` key; it opens.\n2. Run `x` now; then stop.") == [1, 2]
+    assert semicolon_lines("> Run `a;\n*\nb` x;") == [1, 3]
+    assert semicolon_lines("> Quote text.\n- Press the ` key; it opens.\n> Run `x` now.") == [2]
+    assert semicolon_lines("> > t w1; `\n> - q w2; `\n> > t w3; `") == [1, 2, 3]
+    # each paragraph gets its own run index; a span in a quote uses the quote depth
+    assert semicolon_lines("Run `a;\nb` x\n\nRun `c;\nd` y") == []
+    assert semicolon_lines("> Run `a\n> b; c` now") == []
     # one scan of the paragraph finds the last line of each run length
     assert _paragraph_runs(["x ` y", "a `` b ` c", "", "e ` f"], 0, 0, 0) == (2, {1: 1, 2: 1})
     assert _mask_code_spans("a ` b;", 0, lambda run: False) == ("a ` b;", 0)
