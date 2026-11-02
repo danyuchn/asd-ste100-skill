@@ -19,6 +19,7 @@ Exit 2 on a usage error (unknown flag, bad value, unknown rule, unreadable file)
 import argparse
 import bisect
 import contextlib
+import html.entities
 import io
 import json
 import os
@@ -88,13 +89,18 @@ INLINE_CODE = re.compile(r"`[^`]*`")
 BACKTICK_RUN = re.compile(r"`+")
 # A list item start at any indent, to find the content indent of its item.
 LIST_ITEM_INDENT = re.compile(r"^( *)([-*+]|[0-9]+[.)])( +|$)")
-# Markup that is not prose: character references (&nbsp; &#39; &#x2192;),
-# inline link destinations ("](url"), and autolinks (<https://...>).
-NON_PROSE = re.compile(
-    r"&(?:[A-Za-z][A-Za-z0-9]{1,31}|#[0-9]{1,7}|#[xX][0-9A-Fa-f]{1,6});"
-    r"|(?<=\]\()[^)\s]+"
-    r"|<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*>"
-)
+# Markup that is not prose: character references (&nbsp; &#39; &#x2192;) and
+# autolinks (<https://...>). Inline link destinations ("](url") are found by
+# _link_destination_end. A reference is markup only when GitHub reads it as one.
+CHAR_REF = re.compile(r"&(?:([A-Za-z][A-Za-z0-9]{1,31})|#([0-9]{1,7})|#[xX]([0-9A-Fa-f]{1,6}));")
+LINK_OPEN = re.compile(r"\]\(")
+# A list item or a fence that can interrupt a paragraph: a bullet or "1." with text.
+PARAGRAPH_INTERRUPT = re.compile(r" {0,3}(?:[-+*][ \t]+\S|1[.)][ \t]+\S|`{3,}|~{3,})")
+AUTOLINK = re.compile(r"<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*>")
+# CommonMark 6.3 lets an implementation limit the nesting of parentheses in a
+# link destination. The limit keeps the scan of a long line linear.
+MAX_LINK_PARENS = 32
+ASCII_PUNCTUATION = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
 LIST_ITEM_START = re.compile(
     r"^(?P<indent> {0,3})(?P<marker>[-*+]|[0-9]+[.)])(?P<gap> +)(?P<body>.*)$"
 )
@@ -156,40 +162,231 @@ def _closes_later(run, lines):
     return False
 
 
-def _mask_code_spans(line, open_run, later_lines):
+def _mask_code_spans(line, open_run, later_lines, depth=0, skip=0, carry=None):
     """Blank the code spans in LINE, also a span that wraps across lines.
 
     OPEN_RUN is the backtick run length of a span still open from an earlier
     line, or 0. LATER_LINES are the lines after LINE. As in CommonMark 6.1, a
     span ends at the next run of the same length, and a run that no later run
-    in the paragraph closes is literal text. Return (masked line, open run).
+    in the paragraph closes is literal text. Outside code spans, fill inline
+    link destinations with underscores. What starts first wins: a code span
+    that opens before "](" hides the link, and a backtick in a link is text.
+    DEPTH is the quote depth of the paragraph that LINE is in, or None when no
+    paragraph goes on after LINE, so a link must close in it. SKIP is where a
+    link from an earlier line ends in LINE. When a link goes on in a later
+    line, CARRY gets [lines ahead, column after its ")"]. Return (masked line,
+    open run).
     """
     masked = list(line)
     start = 0 if open_run else None
     runs = list(BACKTICK_RUN.finditer(line))
+    opens = [m.end() for m in LINK_OPEN.finditer(line)]
+    k = 0
+    done = skip  # the end of the last code span or link
+
+    def mask_links(limit):
+        # Fill the destinations after the "](" marks before LIMIT.
+        nonlocal k, done
+        while k < len(opens) and opens[k] <= limit:
+            pos = opens[k]
+            k += 1
+            if pos - 2 < done:
+                continue
+            link = _link_destination_end(line, pos, later_lines, depth)
+            if link is not None and link[0] > pos:
+                masked[pos:link[0]] = "_" * (link[0] - pos)
+                done = link[1]
+                if carry is not None and link[2]:
+                    carry[:] = link[2]
+
     for i, run in enumerate(runs):
         n = len(run.group())
         if start is not None:
             if n == open_run:
                 masked[start:run.end()] = " " * (run.end() - start)
                 start, open_run = None, 0
+                done = run.end()
             continue
+        mask_links(run.start())
+        if run.start() < done:
+            continue  # a backtick in a link is text
         if (any(len(r.group()) == n for r in runs[i + 1:])
                 or _closes_later(n, later_lines)):
             start, open_run = run.start(), n
     if start is not None:
         masked[start:] = " " * (len(line) - start)
+    else:
+        mask_links(len(line))
     return "".join(masked), open_run
 
 
+def _char_ref_is_markup(match):
+    """True when the character reference MATCH renders as one character.
+
+    A named reference counts only when its name is in the HTML5 list. A
+    reference that renders as a semicolon is prose: GitHub shows a semicolon.
+    """
+    name, decimal, hexadecimal = match.groups()
+    if name is not None:
+        return name + ";" in html.entities.html5 and name != "semi"
+    value = int(decimal) if decimal is not None else int(hexadecimal, 16)
+    return value != ord(";")
+
+
+def _paragraph_lines(later_lines, depth):
+    """Yield (text, column, lines ahead) for the lines that continue the paragraph.
+
+    TEXT is the line without its quote prefix, which ends at COLUMN.
+
+    DEPTH is the quote depth of the paragraph, or None when no paragraph goes
+    on. A blank line, a deeper quote and a line that starts a block end the
+    paragraph (CommonMark 4.1 to 4.6, 5.1 and 5.2). A line with fewer ">" is a
+    lazy line and continues it.
+    """
+    if depth is None:
+        return
+    for ahead, line in enumerate(later_lines, 1):
+        levels, rest = _strip_quotes(line)
+        if (levels > depth or not rest.strip() or NO_PARAGRAPH.match(rest)
+                or SETEXT_UNDERLINE.match(rest) or PARAGRAPH_INTERRUPT.match(rest)
+                or any(start.match(rest) for start, _ in HTML_BLOCK_KINDS)):
+            return
+        yield rest, len(line) - len(rest), ahead
+
+
+def _skip_link_gap(item, pos, rest):
+    """Skip spaces and tabs from POS, with at most one line ending.
+
+    ITEM is (text, column, lines ahead), and REST yields the next items of the
+    paragraph. Return (item, pos, crossed), or None when the paragraph ends.
+    """
+    while pos < len(item[0]) and item[0][pos] in " \t":
+        pos += 1
+    if pos < len(item[0]):
+        return item, pos, False
+    item = next(rest, None)
+    if item is None:
+        return None
+    pos = 0
+    while pos < len(item[0]) and item[0][pos] in " \t":
+        pos += 1
+    return item, pos, True
+
+
+def _skip_link_title(item, pos, rest):
+    """Return (item, pos) after a link title that starts at POS, or None.
+
+    ITEM is (text, column, lines ahead). The title can go on in the next lines
+    of the paragraph (REST), but it must close before the paragraph ends.
+    """
+    line = item[0]
+    closer = {'"': '"', "'": "'", "(": ")"}[line[pos]]
+    pos += 1
+    while True:
+        while pos < len(line):
+            if line[pos] == "\\" and pos + 1 < len(line) and line[pos + 1] in ASCII_PUNCTUATION:
+                pos += 2
+                continue
+            if line[pos] == closer:
+                return item, pos + 1
+            if closer == ")" and line[pos] == "(":
+                return None
+            pos += 1
+        item, pos = next(rest, None), 0
+        if item is None:
+            return None
+        line = item[0]
+
+
+def _link_destination_end(text, start, later_lines=(), depth=None):
+    """Return (destination end, link end, carry) for the destination at START, or None.
+
+    START is after "](". CommonMark 6.3: the destination is in <...>, or it has
+    no space or control character and its parentheses are balanced. An
+    optional title and ")" must follow, in the same paragraph. LATER_LINES are
+    the lines after TEXT, and DEPTH is the quote depth of the paragraph (see
+    _paragraph_lines). Each gap of spaces and tabs may hold one line ending,
+    and the title may span lines. The link end is after ")" when the link
+    closes in TEXT, else the end of TEXT, and CARRY is then (lines ahead,
+    column after ")") of the line where it closes, else None.
+    """
+    pos = start
+    if pos < len(text) and text[pos] == "<":
+        pos += 1
+        while pos < len(text) and text[pos] not in "<>":
+            pos += 2 if text[pos] == "\\" and pos + 1 < len(text) else 1
+        if pos >= len(text) or text[pos] != ">":
+            return None
+        end = pos + 1
+    else:
+        parens = 0
+        while pos < len(text):
+            char = text[pos]
+            if char == "\\" and pos + 1 < len(text) and text[pos + 1] in ASCII_PUNCTUATION:
+                pos += 2
+                continue
+            if char <= " " or char == "\x7f":
+                break
+            if char == "(":
+                parens += 1
+                if parens > MAX_LINK_PARENS:
+                    return None
+            elif char == ")":
+                if parens == 0:
+                    break
+                parens -= 1
+            pos += 1
+        if parens:
+            return None
+        end = pos
+    rest = _paragraph_lines(later_lines, depth)
+    gap = _skip_link_gap((text, 0, 0), end, rest)
+    if gap is None:
+        return None
+    item, pos, crossed = gap
+    if (crossed or pos > end) and item[0][pos] in "\"'(":
+        title = _skip_link_title(item, pos, rest)
+        if title is None:
+            return None
+        gap = _skip_link_gap(*title, rest)
+        if gap is None:
+            return None
+        item, pos, _ = gap
+    if item[0][pos] != ")":
+        return None
+    if item[2] == 0:
+        return end, pos + 1, None
+    return end, len(text), (item[2], item[1] + pos + 1)
+
+
 def _mask_non_prose(text):
-    """Blank code spans, then fill character references and link targets.
+    """Blank code spans, then fill character references and autolinks.
 
     The fill is underscores, not spaces, so a token stays one token and word
     counts do not change. An underscore is not a word character for _count_words.
+    Link destinations are filled by _mask_code_spans.
     """
-    return NON_PROSE.sub(lambda match: "_" * len(match.group(0)),
-                         _mask_inline_code(text))
+    text = _mask_inline_code(text)
+    out = []
+    pos = done = 0
+    while pos < len(text):
+        end = None
+        if text[pos] == "&":
+            ref = CHAR_REF.match(text, pos)
+            if ref and _char_ref_is_markup(ref):
+                end = ref.end()
+        if end is None and text[pos] == "<":
+            link = AUTOLINK.match(text, pos)
+            if link:
+                end = link.end()
+        if end is None:
+            pos += 1
+            continue
+        out.append(text[done:pos])
+        out.append("_" * (end - pos))
+        pos = done = end
+    out.append(text[done:])
+    return "".join(out)
 
 
 def _sentence_starts(text):
@@ -548,6 +745,8 @@ def lint(text, filename="<stdin>"):
     # backtick run length of a code span that is open across lines, or 0
     open_span = 0
     paragraph_depth = 0
+    # (line number, column) where a link from an earlier line ends, or None
+    link_end = None
     html_containers = []
     lines = text.splitlines()
     table_cells = _markdown_table_cells(lines)
@@ -653,11 +852,26 @@ def lint(text, filename="<stdin>"):
         in_quote = is_quote
         after_boundary = not raw_line.strip()
         for segment, source_column in segments:
-            if is_table or in_html:
-                # a table cell holds its own spans, and an HTML block has none
+            if in_html:
+                # an HTML block has no code spans and no Markdown links
                 line = _mask_non_prose(segment)
+            elif is_table:
+                # a table cell holds its own spans and links
+                line = _mask_non_prose(_mask_code_spans(segment, 0, ())[0])
             else:
-                masked, open_span = _mask_code_spans(segment, open_span, lines[lineno:])
+                skip = 0
+                if link_end and link_end[0] > lineno:
+                    skip = len(segment)  # the whole line is in the title of a link
+                elif link_end and link_end[0] == lineno:
+                    skip = link_end[1]
+                carry = []
+                masked, open_span = _mask_code_spans(segment, open_span, lines[lineno:],
+                                                     paragraph_depth if in_paragraph else None,
+                                                     skip, carry)
+                if carry:
+                    link_end = (lineno + carry[0], carry[1])
+                elif link_end and link_end[0] <= lineno:
+                    link_end = None
                 line = _mask_non_prose(masked)
             words_total += len(line.split())
             for rule_id, level, pattern, msg in RULES:
@@ -979,9 +1193,63 @@ def selftest():
     findings, _ = lint("Check the config. Check the output.")
     assert not any(f["rule"] == "synonym-rotation" for f in findings)
     # character references and link targets are markup, not prose
-    findings, _ = lint("Press Ctrl&nbsp;C to stop &#59; &#x3B; &rarr; now. "
+    findings, _ = lint("Press Ctrl&nbsp;C to stop &rarr; &#8594; &#x2192; now. "
                        "See [the docs](https://x.io/a;b) or <https://x.io/a;b>.")
     assert not any(f["rule"] == "semicolon" for f in findings), findings
+    findings, _ = lint('See [a](https://x.io/a;b "Title") and [b](<a b;c>) and [c](a(b;c)).')
+    assert not any(f["rule"] == "semicolon" for f in findings), findings
+    # a reference GitHub does not read as one, or that renders ";", is prose
+    for text in ("We closed the Q&As; then we left.", "Use &unknownentity; here.",
+                 "Read this&#59; then stop.", "Read this&#x3b; then stop.", "Read&semi; this."):
+        findings, _ = lint(text)
+        assert [f["rule"] for f in findings] == ["semicolon"], (text, findings)
+    # text in parentheses that is no link destination is prose
+    findings, _ = lint("Read [this](seamless; now).")
+    assert [f["rule"] for f in findings] == ["marketing-adjective", "semicolon"], findings
+    for text in ("See [a](b;c d).", "See [a](b(c;d).", "See [a](<b;c).", "See [a](b;c \"t\" x)."):
+        findings, _ = lint(text)
+        assert [f["rule"] for f in findings] == ["semicolon"], (text, findings)
+    # the link can go on in the next lines of its paragraph, and it must close there
+    for text, cols in (("See [docs](https://x.io/a;b\n).", []),
+                       ("See [a](b;c \"multi\nline title\") now.", []),
+                       ("See [a](b;c\n\"title\") now.", []),
+                       ("See [a](b;c (paren\ntitle)) now.", []),
+                       ("> See [docs](https://x.io/a;b\n> ).", []),
+                       ("See [docs](https://x.io/a;b\n\n).", [(1, 26)]),
+                       ("See [a](b;c\n\n\"title\") now.", [(1, 10)]),
+                       ("See [a](b;c\nnext line) now.", [(1, 10)]),
+                       ("See [a](b(c);d \"oops).", [(1, 13)]),
+                       ("See [a](b(c);d \"oops).\n\nNext; para.", [(1, 13), (3, 5)]),
+                       ("See [a](b;c (paren (no)) now.", [(1, 10)]),
+                       # a block that interrupts the paragraph ends the link
+                       ("See [a](b;c \"x\n- y\") z.", [(1, 10)]),
+                       ("See [a](b;c \"x\n# y\") z.", [(1, 10)]),
+                       ("See [a](b;c \"x\n===\") z.", []),
+                       ("See [a](b;c \"x\n===\n\") z.", [(1, 10)]),
+                       ("See [a](b;c\n> )", [(1, 10)]),
+                       ("> See [a](b;c\n)", []),
+                       ("See [a](b;c \"x\n2. y\") z.", []),
+                       # a backtick in a destination is text, and what starts first wins
+                       ("See [a](https://x.io/a;b`c`tail).", []),
+                       ("See [x](a`b;c) and `d` e; f.", [(1, 25)]),
+                       ("Run `a [b](c;d` now.", []),
+                       ("A `` [a](b;c `` d) e; f", [(1, 21)]),
+                       ("| A | B |\n|-|-|\n| [a](b;c`d`e) | x |", []),
+                       # a lazy line continues the quoted paragraph of the link
+                       ("> First line\nSee [a](b;c\n> ) now.", []),
+                       # a backtick in a title is text, a code span after the link is a span
+                       ("See [a](b \"x`y\") and `z; w` now.", []),
+                       # in a table cell the link starts first, and an HTML block has no links
+                       ("| A | B |\n|-|-|\n| [a](b`c) d; e` f | x |", [(3, 13)]),
+                       ("<div>\nSee [a](b;c) now.\n</div>", [(2, 10)]),
+                       # a heading does not go on in the next line
+                       ("# See [a](b;c\n) now.", [(1, 12)]),
+                       # a title that goes on in the next line holds its backticks there too
+                       ("See [a](b \"x\ny`z\") and `w; v` q.", []),
+                       ("> See [a](b \"x\n> y\n> `z\") and `w; v` q.", []),
+                       ("See [a](b \"x\ny\") a; `b` c", [(2, 6)])):
+        findings, _ = lint(text)
+        assert [(f["line"], f["col"]) for f in findings if f["rule"] == "semicolon"] == cols, (text, findings)
     findings, _ = lint("Press [stop](https://x.io); then wait. Use & ; here.")
     assert [f["col"] for f in findings if f["rule"] == "semicolon"] == [27, 46], findings
     # an indented code block is code, also in a quote and under a list item
