@@ -952,6 +952,8 @@ def lint(text, filename="<stdin>"):
         # The paragraph state reads the line after its quote prefix, so a line with only
         # quote markers is blank inside its quote.
         depth, unquoted = _strip_quotes(raw_line.expandtabs(4))
+        # a deeper quote starts a new paragraph, so the text before it is no context
+        deeper_quote = depth > paragraph_depth
         underline = (in_paragraph and depth == paragraph_depth
                      and SETEXT_UNDERLINE.match(unquoted))
         in_paragraph = bool(unquoted.strip() and not in_html and not is_fence and not fence
@@ -1010,7 +1012,7 @@ def lint(text, filename="<stdin>"):
                  and GITHUB_ALERT.fullmatch(content.strip()))
         standalone = STANDALONE_LINE.match(content) or alert
         if (is_table or not content.strip() or standalone
-                or ANY_LIST_ITEM.match(content) or is_quote != in_quote):
+                or ANY_LIST_ITEM.match(content) or is_quote != in_quote or deeper_quote):
             flush()
         in_quote = is_quote
         after_boundary = not raw_line.strip()
@@ -1118,8 +1120,10 @@ def selftest():
                  "It may\nhave failed.", "- It may\n  have run.", "> - It may\n>   have run."):
         findings, _ = lint(text)
         assert not any(f["rule"] == "present-perfect" for f in findings), (text, findings)
-    findings, _ = lint("> It may\n>\n> have failed.")
-    assert [f["line"] for f in findings if f["rule"] == "present-perfect"] == [3], findings
+    for text in ("> It may\n>\n> have failed.", "> It may\n>> have failed."):
+        findings, _ = lint(text)
+        perfect_lines = [f["line"] for f in findings if f["rule"] == "present-perfect"]
+        assert perfect_lines == [text.count("\n") + 1], (text, findings)
     # an adverb without a modal is not a hedge
     findings, _ = lint("The task already has run. They probably have finished.")
     assert sum(f["rule"] == "present-perfect" for f in findings) == 2, findings
