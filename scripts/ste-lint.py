@@ -19,6 +19,7 @@ Exit 2 on a usage error (unknown flag, bad value, unknown rule, unreadable file)
 import argparse
 import bisect
 import contextlib
+import html.entities
 import io
 import json
 import os
@@ -88,13 +89,15 @@ INLINE_CODE = re.compile(r"`[^`]*`")
 BACKTICK_RUN = re.compile(r"`+")
 # A list item start at any indent, to find the content indent of its item.
 LIST_ITEM_INDENT = re.compile(r"^( *)([-*+]|[0-9]+[.)])( +|$)")
-# Markup that is not prose: character references (&nbsp; &#39; &#x2192;),
-# inline link destinations ("](url"), and autolinks (<https://...>).
-NON_PROSE = re.compile(
-    r"&(?:[A-Za-z][A-Za-z0-9]{1,31}|#[0-9]{1,7}|#[xX][0-9A-Fa-f]{1,6});"
-    r"|(?<=\]\()[^)\s]+"
-    r"|<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*>"
-)
+# Markup that is not prose: character references (&nbsp; &#39; &#x2192;) and
+# autolinks (<https://...>). Inline link destinations ("](url") are found by
+# _link_destination_end. A reference is markup only when GitHub reads it as one.
+CHAR_REF = re.compile(r"&(?:([A-Za-z][A-Za-z0-9]{1,31})|#([0-9]{1,7})|#[xX]([0-9A-Fa-f]{1,6}));")
+AUTOLINK = re.compile(r"<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*>")
+# CommonMark 6.3 lets an implementation limit the nesting of parentheses in a
+# link destination. The limit keeps the scan of a long line linear.
+MAX_LINK_PARENS = 32
+ASCII_PUNCTUATION = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
 LIST_ITEM_START = re.compile(
     r"^(?P<indent> {0,3})(?P<marker>[-*+]|[0-9]+[.)])(?P<gap> +)(?P<body>.*)$"
 )
@@ -182,14 +185,118 @@ def _mask_code_spans(line, open_run, later_lines):
     return "".join(masked), open_run
 
 
+def _char_ref_is_markup(match):
+    """True when the character reference MATCH renders as one character.
+
+    A named reference counts only when its name is in the HTML5 list. A
+    reference that renders as a semicolon is prose: GitHub shows a semicolon.
+    """
+    name, decimal, hexadecimal = match.groups()
+    if name is not None:
+        return name + ";" in html.entities.html5 and name != "semi"
+    value = int(decimal) if decimal is not None else int(hexadecimal, 16)
+    return value != ord(";")
+
+
+def _skip_link_title(text, pos):
+    """Return the end of a link title that starts at POS, or None."""
+    closer = {'"': '"', "'": "'", "(": ")"}[text[pos]]
+    pos += 1
+    while pos < len(text):
+        if text[pos] == "\\" and pos + 1 < len(text) and text[pos + 1] in ASCII_PUNCTUATION:
+            pos += 2
+            continue
+        if text[pos] == closer:
+            return pos + 1
+        if closer == ")" and text[pos] == "(":
+            return None
+        pos += 1
+    return len(text)  # the title can go on in the next line
+
+
+def _link_destination_end(text, start):
+    """Return the end of the inline link destination at START, after "](", or None.
+
+    CommonMark 6.3: the destination is in <...>, or it has no space or control
+    character and its parentheses are balanced. An optional title and ")" must
+    follow. The link can go on in the next line, so the end of the line is
+    accepted after a space that follows the destination, and in the title.
+    """
+    pos = start
+    if pos < len(text) and text[pos] == "<":
+        pos += 1
+        while pos < len(text) and text[pos] not in "<>":
+            pos += 2 if text[pos] == "\\" and pos + 1 < len(text) else 1
+        if pos >= len(text) or text[pos] != ">":
+            return None
+        end = pos + 1
+    else:
+        depth = 0
+        while pos < len(text):
+            char = text[pos]
+            if char == "\\" and pos + 1 < len(text) and text[pos + 1] in ASCII_PUNCTUATION:
+                pos += 2
+                continue
+            if char <= " " or char == "\x7f":
+                break
+            if char == "(":
+                depth += 1
+                if depth > MAX_LINK_PARENS:
+                    return None
+            elif char == ")":
+                if depth == 0:
+                    break
+                depth -= 1
+            pos += 1
+        if depth:
+            return None
+        end = pos
+    pos = end
+    while pos < len(text) and text[pos] in " \t":
+        pos += 1
+    if pos < len(text) and pos > end and text[pos] in "\"'(":
+        pos = _skip_link_title(text, pos)
+        if pos is None:
+            return None
+        while pos < len(text) and text[pos] in " \t":
+            pos += 1
+    # A destination that runs to the end of the line has no ")" and no title after it.
+    if pos < len(text) and text[pos] != ")" or pos == end == len(text):
+        return None
+    return end
+
+
 def _mask_non_prose(text):
     """Blank code spans, then fill character references and link targets.
 
     The fill is underscores, not spaces, so a token stays one token and word
     counts do not change. An underscore is not a word character for _count_words.
     """
-    return NON_PROSE.sub(lambda match: "_" * len(match.group(0)),
-                         _mask_inline_code(text))
+    text = _mask_inline_code(text)
+    out = []
+    pos = done = 0
+    while pos < len(text):
+        end = None
+        if text[pos] == "&":
+            ref = CHAR_REF.match(text, pos)
+            if ref and _char_ref_is_markup(ref):
+                end = ref.end()
+        if end is None and text.startswith("](", pos - 2) and pos >= 2:
+            end = _link_destination_end(text, pos)
+            if end == pos:
+                end = None
+        if end is None and text[pos] == "<":
+            link = AUTOLINK.match(text, pos)
+            if link:
+                end = link.end()
+        if end is None:
+            pos += 1
+            continue
+        out.append(text[done:pos])
+        out.append("_" * (end - pos))
+        pos = done = end
+    out.append(text[done:])
+    return "".join(out)
 
 
 def _sentence_starts(text):
@@ -965,9 +1072,22 @@ def selftest():
     findings, _ = lint("Check the config. Check the output.")
     assert not any(f["rule"] == "synonym-rotation" for f in findings)
     # character references and link targets are markup, not prose
-    findings, _ = lint("Press Ctrl&nbsp;C to stop &#59; &#x3B; &rarr; now. "
+    findings, _ = lint("Press Ctrl&nbsp;C to stop &rarr; &#8594; &#x2192; now. "
                        "See [the docs](https://x.io/a;b) or <https://x.io/a;b>.")
     assert not any(f["rule"] == "semicolon" for f in findings), findings
+    findings, _ = lint('See [a](https://x.io/a;b "Title") and [b](<a b;c>) and [c](a(b;c)).')
+    assert not any(f["rule"] == "semicolon" for f in findings), findings
+    # a reference GitHub does not read as one, or that renders ";", is prose
+    for text in ("We closed the Q&As; then we left.", "Use &unknownentity; here.",
+                 "Read this&#59; then stop.", "Read this&#x3b; then stop.", "Read&semi; this."):
+        findings, _ = lint(text)
+        assert [f["rule"] for f in findings] == ["semicolon"], (text, findings)
+    # text in parentheses that is no link destination is prose
+    findings, _ = lint("Read [this](seamless; now).")
+    assert [f["rule"] for f in findings] == ["marketing-adjective", "semicolon"], findings
+    for text in ("See [a](b;c d).", "See [a](b(c;d).", "See [a](<b;c).", "See [a](b;c \"t\" x)."):
+        findings, _ = lint(text)
+        assert [f["rule"] for f in findings] == ["semicolon"], (text, findings)
     findings, _ = lint("Press [stop](https://x.io); then wait. Use & ; here.")
     assert [f["col"] for f in findings if f["rule"] == "semicolon"] == [27, 46], findings
     # an indented code block is code, also in a quote and under a list item
