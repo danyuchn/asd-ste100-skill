@@ -541,6 +541,7 @@ def lint(text, filename="<stdin>"):
     words_total = 0
     fence = None
     html_block = None
+    html_depth = 0
     in_paragraph = False
     # content indent of the open list item, so its indented lines are not code
     list_indent = 0
@@ -570,7 +571,20 @@ def lint(text, filename="<stdin>"):
             fence = None
         in_html = False
         if fence is None:
-            in_html, html_block = _html_block_step(html_block, raw_line, in_paragraph)
+            # An HTML block can sit in a block quote. It ends when its quote ends. An
+            # open block strips only its own ">" levels: a deeper ">" is its text.
+            if html_block is not None:
+                line_depth, line_unquoted = _strip_quotes(raw_line.expandtabs(4), html_depth)
+                if line_depth < html_depth:
+                    html_block = None
+            if html_block is None:
+                line_depth, line_unquoted = _strip_quotes(raw_line.expandtabs(4))
+            # A deeper quote starts a block quote, which a paragraph outside it does not continue.
+            continues = in_paragraph and line_depth <= paragraph_depth
+            was_html = html_block is not None
+            in_html, html_block = _html_block_step(html_block, line_unquoted, continues)
+            if in_html and not was_html:
+                html_depth = line_depth
         if in_html:
             # An HTML block holds literal text until it ends, so no fence opens in it.
             is_fence = False
@@ -1140,6 +1154,19 @@ def selftest():
         else:
             raise AssertionError(bad)
     assert _rule_list("passive-voice,present-perfect") == {"passive-voice", "present-perfect"}
+    # an HTML block in a block quote holds text, and it ends with its quote
+    findings, _ = lint("> <div>\n> ```\n> This is prose; keep it.\n> ```\n> </div>")
+    assert [(f["rule"], f["line"]) for f in findings] == [("semicolon", 3)], findings
+    findings, _ = lint("> <div>\n\n```\nx; y\n```\n\nProse; here.")
+    assert [(f["rule"], f["line"]) for f in findings] == [("semicolon", 7)], findings
+    # a ">" line in an open HTML block is its text, not a quote end
+    findings, _ = lint("<div>\n> Note.\n>\n> ```\n> a; b\n> ```\n</div>")
+    assert [(f["rule"], f["line"]) for f in findings] == [("semicolon", 5)], findings
+    findings, _ = lint("<div>\n>\n```\nText; here.\n```")
+    assert [(f["rule"], f["line"]) for f in findings] == [("semicolon", 4)], findings
+    # a quote after a paragraph starts a block quote, so a type 7 tag in it starts a block
+    findings, _ = lint("Paragraph.\n> <widget>\n> ```\n> Text; here.\n> ```")
+    assert [(f["rule"], f["line"]) for f in findings] == [("semicolon", 4)], findings
     print("selftest OK")
 
 
