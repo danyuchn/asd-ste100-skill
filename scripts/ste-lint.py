@@ -521,22 +521,63 @@ def _dangling_conjunction_findings(text, filename):
     return findings
 
 
-def _blank_front_matter(text):
-    """Blank a leading YAML front-matter block, keeping line numbers.
+# A line of YAML front matter: a key, a list item, an indented line, or a comment.
+FRONT_MATTER_KEY = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*[ \t]*:(?:[ \t]|$)")
+FRONT_MATTER_LINE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*[ \t]*:(?:[ \t]|$)|-(?:[ \t]|$)|[ \t]+\S|#")
+DESCRIPTION_KEY = re.compile(r"description[ \t]*:(?:[ \t]+|$)")
+# A block scalar indicator ("|", ">-", "|2+"), with an optional comment.
+BLOCK_SCALAR = re.compile(r"[|>][1-9+-]{0,2}(?:[ \t]+#.*)?")
 
-    Front matter is metadata, not prose: without this, its keys and values
-    join into one sentence.
+
+def _front_matter(text):
+    """Find a leading YAML front-matter block.
+
+    Return (text, description): TEXT with the block blanked, so line numbers
+    stay true, and the value of its "description:" key as (line index,
+    column, text) pieces. The block counts only when its first line is a key
+    and every line is a key, a list item, an indented line, a comment or a
+    blank line. Else it is Markdown: a thematic break, prose and a second
+    thematic break. Only the description is prose, because agents act on it.
     """
     lines = text.splitlines()
-    if lines and lines[0].rstrip() == "---":
-        for end in range(1, len(lines)):
-            if lines[end].rstrip() == "---":
-                return "\n" * (end + 1) + "\n".join(lines[end + 1:])
-    return text
+    if not lines or lines[0].rstrip() != "---":
+        return text, []
+    for end in range(1, len(lines)):
+        if lines[end].rstrip() == "---":
+            break
+    else:
+        return text, []
+    body = [line for line in lines[1:end] if line.strip()]
+    if (body and not FRONT_MATTER_KEY.match(body[0])
+            or not all(FRONT_MATTER_LINE.match(line) for line in body)):
+        return text, []
+    pieces = []
+    for index in range(1, end):
+        key = DESCRIPTION_KEY.match(lines[index])
+        if key:
+            break
+    else:
+        index = end
+    if index < end:
+        value = lines[index][key.end():].rstrip()
+        quote = value[:1] if value[:1] in ("'", '"') else ""
+        if value and not BLOCK_SCALAR.fullmatch(value):
+            pieces.append((index, key.end() + len(quote), value[len(quote):]))
+        for later in range(index + 1, end):
+            line = lines[later]
+            if line.strip() and not line[0] in " \t":
+                break
+            lead = len(line) - len(line.lstrip(" \t"))
+            if line[lead:].rstrip():
+                pieces.append((later, lead, line[lead:].rstrip()))
+        if quote and pieces and pieces[-1][2].endswith(quote):
+            line_index, column, value = pieces[-1]
+            pieces[-1] = (line_index, column, value[:-1])
+    return "\n" * (end + 1) + "\n".join(lines[end + 1:]), pieces
 
 
 def lint(text, filename="<stdin>"):
-    text = _blank_front_matter(text)
+    text, description = _front_matter(text)
     findings = []
     words_total = 0
     fence = None
@@ -560,6 +601,38 @@ def lint(text, filename="<stdin>"):
     def flush():
         findings.extend(_long_sentence_findings(block, filename))
         block.clear()
+
+    def check(lineno, segment, source_column, line, skip, is_table):
+        nonlocal words_total
+        words_total += len(line.split())
+        for rule_id, level, pattern, msg in RULES:
+            for m in pattern.finditer(line):
+                # the modal may end the line before: "may" / "have failed"
+                before = (block[-1][2] + " " if block else "") + line[:m.start()]
+                if rule_id == "present-perfect" and MODAL_PERFECT_PREFIX.search(before):
+                    continue
+                findings.append({"file": filename, "line": lineno,
+                                 "col": source_column + m.start() + 1,
+                                 "rule": rule_id, "level": level,
+                                 "match": m.group(0), "message": msg})
+        for gi, group in enumerate(SYNONYM_GROUPS):
+            for base in group:
+                if (gi, base) in seen_synonyms:
+                    continue
+                m = _word_re(base).search(line)
+                if m:
+                    seen_synonyms[(gi, base)] = (
+                        lineno, source_column + m.start() + 1, m.group(0)
+                    )
+        if line[skip:].strip():
+            block.append((lineno, source_column + skip, line[skip:]))
+
+    # The description in the front matter is one paragraph of prose.
+    span = 0
+    for position, (index, column, value) in enumerate(description):
+        masked, span = _mask_code_spans(value, span, [p[2] for p in description[position + 1:]])
+        check(index + 1, value, column, _mask_non_prose(masked), 0, False)
+    flush()
 
     for lineno, raw_line in enumerate(lines, 1):
         was_paragraph = in_paragraph
@@ -645,33 +718,12 @@ def lint(text, filename="<stdin>"):
             else:
                 masked, open_span = _mask_code_spans(segment, open_span, lines[lineno:])
                 line = _mask_non_prose(masked)
-            words_total += len(line.split())
-            for rule_id, level, pattern, msg in RULES:
-                for m in pattern.finditer(line):
-                    # the modal may end the line before: "may" / "have failed"
-                    before = (block[-1][2] + " " if block else "") + line[:m.start()]
-                    if rule_id == "present-perfect" and MODAL_PERFECT_PREFIX.search(before):
-                        continue
-                    findings.append({"file": filename, "line": lineno,
-                                     "col": source_column + m.start() + 1,
-                                     "rule": rule_id, "level": level,
-                                     "match": m.group(0), "message": msg})
-            for gi, group in enumerate(SYNONYM_GROUPS):
-                for base in group:
-                    if (gi, base) in seen_synonyms:
-                        continue
-                    m = _word_re(base).search(line)
-                    if m:
-                        seen_synonyms[(gi, base)] = (
-                            lineno, source_column + m.start() + 1, m.group(0)
-                        )
             # the blockquote prefix and the list marker are markup, not words in the sentence
             skip = quote.end() if quote and not is_table else 0
             marker = None if is_table else ANY_LIST_ITEM.match(segment[skip:])
             if marker:
                 skip += marker.end()
-            if line[skip:].strip():
-                block.append((lineno, source_column + skip, line[skip:]))
+            check(lineno, segment, source_column, line, skip, is_table)
             if is_table:
                 flush()  # each table cell is its own block
         if standalone:
@@ -1010,11 +1062,30 @@ def selftest():
     assert (long_sentences[0]["line"], long_sentences[0]["col"]) == (2, 1), long_sentences
     findings, _ = lint(f"- Item {twenty}\n  continued in the same item.")
     assert any(f["rule"] == "long-sentence" for f in findings), findings
-    # leading front matter is skipped; line numbers after it stay true
+    # leading front matter is skipped except its description; line numbers after it stay true
     findings, words_total = lint(f"---\nname: x\ndescription: {twenty} {twenty}.\n"
                                  "tags:\n  - a and\n---\nThe job is robust.")
-    assert [(f["line"], f["rule"]) for f in findings] == [(7, "marketing-adjective")], findings
-    assert words_total == 4, words_total
+    assert [(f["line"], f["rule"]) for f in findings] == [
+        (3, "long-sentence"), (7, "marketing-adjective")], findings
+    assert words_total == 44, words_total
+    # the description is one paragraph, in a quoted, plain or block scalar
+    for text, expected in (
+            ("---\nname: x\ndescription: Applies to `thor/` only; the rules are in a file.\n---\n\nText.\n",
+             [(3, 37, "semicolon")]),
+            ('---\ndescription: "Use it; then stop."\n---\n', [(2, 21, "semicolon")]),
+            ("---\ndescription: >-\n    Use it\n    robustly; then stop.\nname: x\n---\n",
+             [(4, 5, "marketing-adjective"), (4, 13, "semicolon")]),
+            ("---\ndescription: Use `a\n  b; c` now; stop.\n---\n", [(3, 12, "semicolon")]),
+            ("---\ndescription: ```\n---\n\nProse; here.\n", [(5, 6, "semicolon")]),
+            ("---\n# note\nname: x\n---\n", []),
+            ("---\nname: x\n# note; here\nsummary: a; b\n---\n", [])):
+        findings, _ = lint(text)
+        assert [(f["line"], f["col"], f["rule"]) for f in findings] == expected, (text, findings)
+    # a block that is not YAML is Markdown: thematic breaks around prose
+    findings, _ = lint("---\n# Instructions\n\nStart; stop.\n\n- First.\n\n---\n")
+    assert [(f["line"], f["rule"]) for f in findings] == [(4, "semicolon")], findings
+    findings, _ = lint("---\nStart; stop.\n---\n")
+    assert [(f["line"], f["rule"]) for f in findings] == [(2, "semicolon")], findings
     # a later --- pair is a thematic break, not front matter
     findings, _ = lint(f"Intro.\n\n---\n{twenty} {twenty}.\n---")
     assert any(f["rule"] == "long-sentence" for f in findings), findings
