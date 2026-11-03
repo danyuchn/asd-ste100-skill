@@ -870,7 +870,7 @@ def _front_matter(text):
         parts = [(index, key.end(), value)] if value else []
         for later in range(index + 1, end):
             line = lines[later]
-            if line.strip() and not line[0] in " \t":
+            if line.strip() and line[0] not in " \t":
                 break
             lead = len(line) - len(line.lstrip(" \t"))
             if line[lead:].rstrip():
