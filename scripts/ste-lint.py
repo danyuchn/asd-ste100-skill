@@ -21,7 +21,6 @@ import bisect
 import contextlib
 import html.entities
 import io
-import itertools
 import json
 import os
 import re
@@ -226,9 +225,11 @@ def _mask_code_spans(line, open_run, closes_later, lines=(), next_index=0, depth
     masked = list(line)
     start = 0 if open_run else None
     runs = list(BACKTICK_RUN.finditer(line))
+    last = {len(run.group()): i for i, run in enumerate(runs)}  # last run of each length
     opens = [m.end() for m in LINK_OPEN.finditer(line)]
     k = 0
     done = skip  # the end of the last code span or link
+    _blank_title(masked, line, 0, skip)  # a link title from an earlier line
 
     def mask_links(limit):
         # Fill the destinations after the "](" marks before LIMIT.
@@ -238,9 +239,11 @@ def _mask_code_spans(line, open_run, closes_later, lines=(), next_index=0, depth
             k += 1
             if pos - 2 < done:
                 continue
-            link = _link_destination_end(line, pos, itertools.islice(lines, next_index, None), depth)
+            later = (lines[index] for index in range(next_index, len(lines)))
+            link = _link_destination_end(line, pos, later, depth)
             if link is not None and link[0] > pos:
                 masked[pos:link[0]] = "_" * (link[0] - pos)
+                _blank_title(masked, line, link[0], link[1])
                 done = link[1]
                 if carry is not None and link[2]:
                     carry[:] = link[2]
@@ -256,14 +259,30 @@ def _mask_code_spans(line, open_run, closes_later, lines=(), next_index=0, depth
         mask_links(run.start())
         if run.start() < done:
             continue  # a backtick in a link is text
-        if (any(len(r.group()) == n for r in runs[i + 1:])
-                or closes_later(n)):
-            start, open_run = run.start(), n
+        first = escape = run.start()
+        while escape and line[escape - 1] == "\\":
+            escape -= 1
+        if (first - escape) % 2:
+            first, n = first + 1, n - 1  # an escaped backtick is text
+        if n and (last.get(n, -1) > i or closes_later(n)):
+            start, open_run = first, n
     if start is not None:
         masked[start:] = " " * (len(line) - start)
     else:
         mask_links(len(line))
     return "".join(masked), open_run
+
+
+def _blank_title(masked, line, start, end):
+    """Blank the link title in MASKED[START:END] with spaces, but keep its ")".
+
+    GitHub shows a title in no text, so it is not prose. The ")" stays, so the
+    link stays one token for the word count, as it is when it has no title.
+    """
+    if start < end:
+        masked[start:end] = " " * (end - start)
+        if line[end - 1] == ")":
+            masked[end - 1] = ")"
 
 
 def _char_ref_is_markup(match):
@@ -406,13 +425,12 @@ def _link_destination_end(text, start, later_lines=(), depth=None):
 
 
 def _mask_non_prose(text):
-    """Blank code spans, then fill character references and autolinks.
+    """Fill character references and autolinks.
 
     The fill is underscores, not spaces, so a token stays one token and word
     counts do not change. An underscore is not a word character for _count_words.
-    Link destinations are filled by _mask_code_spans.
+    Code spans and link destinations are blanked by _mask_code_spans.
     """
-    text = _mask_inline_code(text)
     out = []
     pos = done = 0
     while pos < len(text):
@@ -939,6 +957,10 @@ def lint(text, filename="<stdin>"):
     # The description in the front matter is one paragraph of prose.
     span = 0
     values = [piece[2] for piece in description]
+    last_piece = {}  # the last piece with a run of each length
+    for piece_index, piece_value in enumerate(values):
+        for m in BACKTICK_RUN.finditer(piece_value):
+            last_piece[len(m.group())] = piece_index
     piece_end = None  # (piece, column) where a link from an earlier piece ends
     for position, (index, column, value) in enumerate(description):
         skip = 0
@@ -947,7 +969,7 @@ def lint(text, filename="<stdin>"):
         elif piece_end and piece_end[0] == position:
             skip = piece_end[1]
         carry = []
-        masked, span = _mask_code_spans(value, span, lambda run: any(len(m.group()) == run for later in values[position + 1:] for m in BACKTICK_RUN.finditer(later)), values, position + 1,
+        masked, span = _mask_code_spans(value, span, lambda run: last_piece.get(run, -1) > position, values, position + 1,
                                         0, skip, carry)
         if carry:
             piece_end = (position + carry[0], carry[1])
@@ -1070,8 +1092,8 @@ def lint(text, filename="<stdin>"):
         after_boundary = not raw_line.strip()
         for segment, source_column in segments:
             if in_html:
-                # an HTML block has no code spans and no Markdown links
-                line = _mask_non_prose(segment)
+                # an HTML block has no Markdown links; backtick pairs stay blanked
+                line = _mask_non_prose(_mask_inline_code(segment))
             elif is_table:
                 # a table cell holds its own spans and links
                 line = _mask_non_prose(_mask_code_spans(segment, 0, lambda run: False)[0])
@@ -1453,7 +1475,27 @@ def selftest():
                        # a title that goes on in the next line holds its backticks there too
                        ("See [a](b \"x\ny`z\") and `w; v` q.", []),
                        ("> See [a](b \"x\n> y\n> `z\") and `w; v` q.", []),
-                       ("See [a](b \"x\ny\") a; `b` c", [(2, 6)])):
+                       ("See [a](b \"x\ny\") a; `b` c", [(2, 6)]),
+                       # a backtick that no code span holds is text, also after a link
+                       ("See [a](b \"y`z\") ``c ` d`` text; last `.", [(1, 32)]),
+                       ("See [a](b \"x\ny`z\") ``c ` d`` text; last `.", [(2, 21)]),
+                       ("Run ```a; b```` now.", [(1, 9)]),
+                       # "](" and a space start no destination
+                       ("]( ;)", [(1, 4)]),
+                       ("]( `);`", []),
+                       ("`[`]( ;)", [(1, 7)]),
+                       ("<aa:;[]( )>", [(1, 5)]),
+                       # an escaped backtick is text, and the rest of its run can open a span
+                       ("\\```;``", []),
+                       ("\\```;```", [(1, 5)]),
+                       ("> \\```;``", []),
+                       ("| A |\n|-|\n| \\```;`` |", []),
+                       # GitHub shows a link title in no text, so it is not prose
+                       ("[a](b \"`;`\")", []),
+                       ("[a](b \"`\n`;`\")", []),
+                       ("[a](b \"`;\")`", []),
+                       ("See [a](b \"x; y\") now; stop.", [(1, 22)]),
+                       ("See [a](b \"x\ny; z\nw\") now; stop.", [(3, 8)])):
         findings, _ = lint(text)
         assert [(f["line"], f["col"]) for f in findings if f["rule"] == "semicolon"] == cols, (text, findings)
     findings, _ = lint("Press [stop](https://x.io); then wait. Use & ; here.")
@@ -1598,6 +1640,9 @@ def selftest():
             ("---\ndescription: See [a](b \"x\n  y`z\") `w; v` q.\n---\n", []),
             ("---\ndescription: See [a](b \"x\n  y\n  z`w\") `p; q` r.\n---\n", []),
             ("---\ndescription: See [a](b \"x\n  y\") c; d.\n---\n", [(3, 8, "semicolon")]),
+            ("---\ndescription: See [a](b \"x\n  y`z\") ``c ` d`` text; last `.\n---\n", [(3, 23, "semicolon")]),
+            ("---\ndescription: ]( ;)\n---\n", [(2, 17, "semicolon")]),
+            ("---\ndescription: \\```;``\n---\n", []),
             # a "#" in quotes, in a block scalar, or inside a word is text
             ("---\ndescription: \"Read # the; file.\"\n---\n", [(2, 25, "semicolon")]),
             ("---\ndescription: 'It''s robust' # c\n---\n", [(2, 21, "marketing-adjective")]),
@@ -1719,6 +1764,11 @@ def selftest():
     # a long block stays linear: one short sentence per line, no blank lines
     findings, _ = lint("The agent read the log.\n" * 20000)
     assert not any(f["rule"] == "long-sentence" for f in findings)
+    # a long line with many code spans, and many links that go on in the next line, stay linear
+    findings, _ = lint("`x` " * 60000 + "c; d.")
+    assert [(f["rule"], f["col"]) for f in findings] == [("semicolon", 240002)], findings
+    findings, _ = lint("[a](x;y\n)\n" * 5000)
+    assert not any(f["rule"] == "semicolon" for f in findings), findings
     # flags may appear between file paths
     with tempfile.TemporaryDirectory() as tmp:
         paths = [os.path.join(tmp, name) for name in ("a.md", "b.md")]
