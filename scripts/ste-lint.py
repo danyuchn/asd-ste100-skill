@@ -226,7 +226,9 @@ def _mask_code_spans(line, open_run, closes_later, lines=(), next_index=0, depth
     start = 0 if open_run else None
     runs = list(BACKTICK_RUN.finditer(line))
     last = {len(run.group()): i for i, run in enumerate(runs)}  # last run of each length
-    opens = [m.end() for m in LINK_OPEN.finditer(line)]
+    opens = [m.end() for m in LINK_OPEN.finditer(line) if not _escaped(line, m.start())]
+    autolinks = [m.span() for m in AUTOLINK.finditer(line)]
+    a = 0
     k = 0
     done = skip  # the end of the last code span or link
     _blank_title(masked, line, 0, skip)  # a link title from an earlier line
@@ -257,12 +259,14 @@ def _mask_code_spans(line, open_run, closes_later, lines=(), next_index=0, depth
                 done = run.end()
             continue
         mask_links(run.start())
+        while a < len(autolinks) and autolinks[a][0] < run.start():
+            if autolinks[a][0] >= done:
+                done = max(done, autolinks[a][1])  # an autolink starts first
+            a += 1
         if run.start() < done:
-            continue  # a backtick in a link is text
-        first = escape = run.start()
-        while escape and line[escape - 1] == "\\":
-            escape -= 1
-        if (first - escape) % 2:
+            continue  # a backtick in a link or an autolink is text
+        first = run.start()
+        if _escaped(line, first):
             first, n = first + 1, n - 1  # an escaped backtick is text
         if n and (last.get(n, -1) > i or closes_later(n)):
             start, open_run = first, n
@@ -271,6 +275,14 @@ def _mask_code_spans(line, open_run, closes_later, lines=(), next_index=0, depth
     else:
         mask_links(len(line))
     return "".join(masked), open_run
+
+
+def _escaped(line, pos):
+    """True when an odd number of backslashes comes right before LINE[POS]."""
+    start = pos
+    while start and line[start - 1] == "\\":
+        start -= 1
+    return (pos - start) % 2 == 1
 
 
 def _blank_title(masked, line, start, end):
@@ -1495,7 +1507,14 @@ def selftest():
                        ("[a](b \"`\n`;`\")", []),
                        ("[a](b \"`;\")`", []),
                        ("See [a](b \"x; y\") now; stop.", [(1, 22)]),
-                       ("See [a](b \"x\ny; z\nw\") now; stop.", [(3, 8)])):
+                       ("See [a](b \"x\ny; z\nw\") now; stop.", [(3, 8)]),
+                       # an escaped "]" starts no link, and an autolink that starts first holds its backticks
+                       ("[label\\](url \"visible; prose\")", [(1, 22)]),
+                       ("[a\\](b;c) d", [(1, 7)]),
+                       ("<https://example.com/\\``> visible; prose `.", [(1, 34)]),
+                       ("<https://x.io/`a> b; c `.", [(1, 20)]),
+                       ("See <https://x.io/a`b> and `c; d` e.", []),
+                       ("`a <https://x` b; c>", [(1, 17)])):
         findings, _ = lint(text)
         assert [(f["line"], f["col"]) for f in findings if f["rule"] == "semicolon"] == cols, (text, findings)
     findings, _ = lint("Press [stop](https://x.io); then wait. Use & ; here.")
