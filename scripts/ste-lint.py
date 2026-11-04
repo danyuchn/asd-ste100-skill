@@ -870,7 +870,7 @@ def _front_matter(text):
         parts = [(index, key.end(), value)] if value else []
         for later in range(index + 1, end):
             line = lines[later]
-            if line.strip() and not line[0] in " \t":
+            if line.strip() and line[0] not in " \t":
                 break
             lead = len(line) - len(line.lstrip(" \t"))
             if line[lead:].rstrip():
@@ -939,8 +939,20 @@ def lint(text, filename="<stdin>"):
     # The description in the front matter is one paragraph of prose.
     span = 0
     values = [piece[2] for piece in description]
+    piece_end = None  # (piece, column) where a link from an earlier piece ends
     for position, (index, column, value) in enumerate(description):
-        masked, span = _mask_code_spans(value, span, lambda run: any(len(m.group()) == run for later in values[position + 1:] for m in BACKTICK_RUN.finditer(later)), values, position + 1)
+        skip = 0
+        if piece_end and piece_end[0] > position:
+            skip = len(value)  # the whole piece is in the title of a link
+        elif piece_end and piece_end[0] == position:
+            skip = piece_end[1]
+        carry = []
+        masked, span = _mask_code_spans(value, span, lambda run: any(len(m.group()) == run for later in values[position + 1:] for m in BACKTICK_RUN.finditer(later)), values, position + 1,
+                                        0, skip, carry)
+        if carry:
+            piece_end = (position + carry[0], carry[1])
+        elif piece_end and piece_end[0] <= position:
+            piece_end = None
         check(index + 1, value, column, _mask_non_prose(masked), 0, False)
     flush()
     def closes_later(run):
@@ -1582,6 +1594,10 @@ def selftest():
             ("---\ndescription: \"Read the file.\" # robust; note\n---\n", []),
             ("---\ndescription: Use it\n  # robust; note\n---\n", []),
             ("---\ndescription: \"Use it\n  across; lines\" # robust\n---\n", [(3, 9, "semicolon")]),
+            # a link title that goes on in the next lines of the description
+            ("---\ndescription: See [a](b \"x\n  y`z\") `w; v` q.\n---\n", []),
+            ("---\ndescription: See [a](b \"x\n  y\n  z`w\") `p; q` r.\n---\n", []),
+            ("---\ndescription: See [a](b \"x\n  y\") c; d.\n---\n", [(3, 8, "semicolon")]),
             # a "#" in quotes, in a block scalar, or inside a word is text
             ("---\ndescription: \"Read # the; file.\"\n---\n", [(2, 25, "semicolon")]),
             ("---\ndescription: 'It''s robust' # c\n---\n", [(2, 21, "marketing-adjective")]),
