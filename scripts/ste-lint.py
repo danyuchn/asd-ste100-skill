@@ -125,6 +125,10 @@ STANDALONE_LINE = re.compile(r"^ {0,3}(?:#|<|(?:[-*_=] *){3,}$)")
 BLOCKQUOTE_PREFIX = re.compile(r"^ {0,3}(?:> ?)+")
 # A GitHub alert marker, alone on the first line of a quote: "> [!NOTE]".
 GITHUB_ALERT = re.compile(r"\[!(?:note|tip|important|warning|caution)\]", re.I)
+# MkDocs admonition title lines.
+ADMONITION_TITLE = re.compile(
+    r'^ {0,3}(?:!!!|\?\?\?)[ \t]*\+?[ \t]+[\w-]+(?:[ \t]+".*")?[ \t]*$'
+)
 # Track ordinary block containers, not inline or void tags such as span or hr.
 HTML_BLOCK_TAG = re.compile(
     r"<(/?)(address|article|aside|blockquote|body|caption|center|dd|details|"
@@ -1044,7 +1048,8 @@ def lint(text, filename="<stdin>"):
         findings.extend(_long_sentence_findings(block, filename))
         block.clear()
 
-    def check(lineno, segment, source_column, line, skip, is_table):
+    def check(lineno, segment, source_column, line, skip, is_table,
+              add_to_block=True):
         nonlocal words_total
         words_total += len(line.split())
         for rule_id, level, pattern, msg in RULES:
@@ -1066,7 +1071,7 @@ def lint(text, filename="<stdin>"):
                     seen_synonyms[(gi, base)] = (
                         lineno, source_column + m.start() + 1, m.group(0)
                     )
-        if line[skip:].strip():
+        if add_to_block and line[skip:].strip():
             block.append((lineno, source_column + skip, line[skip:]))
 
     # The description in the front matter is one paragraph of prose.
@@ -1198,7 +1203,8 @@ def lint(text, filename="<stdin>"):
         alert = (not html_containers and raw_line.startswith(">") and after_boundary
                  and quote.group().count(">") == 1
                  and GITHUB_ALERT.fullmatch(content.strip()))
-        standalone = STANDALONE_LINE.match(content) or alert
+        admonition_title = bool(ADMONITION_TITLE.match(content))
+        standalone = STANDALONE_LINE.match(content) or admonition_title or alert
         if (is_table or not content.strip() or standalone
                 or ANY_LIST_ITEM.match(content) or is_quote != in_quote
                 # a deeper quote starts a new paragraph, so the text before it is no context
@@ -1233,7 +1239,10 @@ def lint(text, filename="<stdin>"):
             marker = None if is_table else ANY_LIST_ITEM.match(segment[skip:])
             if marker:
                 skip += marker.end()
-            check(lineno, segment, source_column, line, skip, is_table)
+            check(
+                lineno, segment, source_column, line, skip, is_table,
+                add_to_block=not admonition_title,
+            )
             if is_table:
                 flush()  # each table cell is its own block
         if standalone:
