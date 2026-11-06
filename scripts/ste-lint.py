@@ -895,7 +895,13 @@ def _dangling_conjunction_findings(text, filename):
             # A blank line has only spaces and tabs: a no-break space is text. A line
             # with only quote markers is blank in its quote.
             depth, content = _strip_quotes(line.expandtabs(4))
-            text_line = bool(content.strip(" \t")) and not NO_PARAGRAPH.match(content)
+            # A setext underline in the container of the paragraph makes it a heading,
+            # so the paragraph ends. As a lazy line it is text (CommonMark 4.3).
+            underline = (in_paragraph and paragraph_indent is not None and not depth
+                         and _indent_width(line) >= paragraph_indent
+                         and SETEXT_UNDERLINE.match(content))
+            text_line = (bool(content.strip(" \t")) and not NO_PARAGRAPH.match(content)
+                         and not underline)
             if line.strip(" \t") and not (in_paragraph and text_line and not depth):
                 close_items(_indent_width(line))
                 paragraph_indent = None if depth else (open_items[-1] if open_items else 0)
@@ -903,19 +909,32 @@ def _dangling_conjunction_findings(text, filename):
             index += 1
             continue
 
+        # A list item that starts with a number other than 1, and an empty list item,
+        # cannot interrupt a paragraph (CommonMark 5.2): GitHub reads the line as text of
+        # the paragraph. An empty "-" item there is a setext underline, so the paragraph
+        # ends. The pass still reads the lines of the item, but with no HTML block in them
+        # (they are paragraph text), and after the item the paragraph stays open in its
+        # container. The item is not open for later lines.
+        marker, body = start.group("marker"), start.group("body")
+        outer_paragraph = (in_paragraph and paragraph_indent is not None
+                           and _indent_width(line) >= paragraph_indent
+                           and ((marker[:-1].isdigit() and marker[:-1].lstrip("0") != "1")
+                                or (not body.strip(" \t") and marker != "-")))
+        outer_indent = paragraph_indent
         close_items(len(start.group("indent")))
         content_indent = (len(start.group("indent"))
                           + len(start.group("marker"))
                           + len(start.group("gap")))
-        open_items.append(content_indent)
-        body = start.group("body")
+        if not outer_paragraph:
+            open_items.append(content_indent)
         # An HTML block can start on the line of the marker. It is in the item, and it
         # ends when the item ends. After five or more spaces the text is indented code.
         body_html, item_html, item_shows = False, None, False
-        if len(start.group("gap")) <= 4:
+        if not outer_paragraph and len(start.group("gap")) <= 4:
             body_html, item_html = _html_block_step(None, body, False)
             item_shows = _block_shows_text(item_html, body)
-        item_paragraph = bool(body.strip(" \t")) and not body_html and not NO_PARAGRAPH.match(body)
+        item_paragraph = outer_paragraph or (bool(body.strip(" \t")) and not body_html
+                                             and not NO_PARAGRAPH.match(body))
         # A block of code or hidden text that stays open shows no item text (see below).
         item_lines = [] if item_html and not item_shows else [(index, body)]
         next_index = index + 1
@@ -938,7 +957,7 @@ def _dangling_conjunction_findings(text, filename):
                 next_index += 1
                 continue
             in_html = hidden = False
-            if item_fence is None:
+            if item_fence is None and not outer_paragraph:
                 if candidate.strip() and _indent_width(candidate) < content_indent:
                     item_html = None  # the line ends the item, and the HTML block in it
                 else:
@@ -974,7 +993,8 @@ def _dangling_conjunction_findings(text, filename):
                               and not NO_PARAGRAPH.match(candidate.expandtabs(4)[content_indent:]))
             next_index += 1
         # The line after the item can continue the last paragraph of the item.
-        in_paragraph, paragraph_indent = item_paragraph, content_indent
+        in_paragraph = item_paragraph
+        paragraph_indent = outer_indent if outer_paragraph else content_indent
 
         meaningful = []
         for line_index, item_line in item_lines:
@@ -1111,12 +1131,14 @@ def _front_matter(text):
             or not all(FRONT_MATTER_LINE.match(line) for line in body)):
         return text, []
     pieces = []
-    # With the key twice, YAML keeps the last value. "description" in quotes is the same key.
-    index, key = end, None
-    for line_index in range(1, end):
-        match = DESCRIPTION_KEY.match(lines[line_index])
-        if match:
-            index, key = line_index, match
+    # "description" in quotes is the same key. The first key counts: a later line that
+    # starts with the key can be in a quoted value that goes on over lines.
+    for index in range(1, end):
+        key = DESCRIPTION_KEY.match(lines[index])
+        if key:
+            break
+    else:
+        index = end
     if index < end:
         value = lines[index][key.end():].rstrip()
         parts = [(index, key.end(), value)] if value else []
@@ -1512,7 +1534,26 @@ def selftest():
                         ("- a\n<span>\n- b and\n", []),
                         ("- a\nlazy\n<span>\n- b and\n", []),
                         ("- a\n  - b\n  text\n  <span>\n  ```\n  ```\n- c and\n", [7]),
-                        ("- a\n  - b\n\n  text\n  <span>\n  ```\n  ```\n- c and\n", [8])):
+                        ("- a\n  - b\n\n  text\n  <span>\n  ```\n  ```\n- c and\n", [8]),
+                        # "2." cannot interrupt a paragraph, so the tag line is paragraph text
+                        ("Text\n2. Example\n<br>\n- Open the valve and\n", [4]),
+                        ("- a\n  Text\n  2. Example\n  <br>\n- Open the valve and\n", [5]),
+                        ("Text\n1. Example\n<br>\n- Open the valve and\n", []),
+                        ("Screenshot:\n2. <img src=\"example.png\">\n<br>\n- Run tests and\n", [4]),
+                        ("Text\n2. # Heading\n<br>\n- Run tests and\n", [4]),
+                        # an empty item cannot interrupt a paragraph; an empty "-" is a setext underline
+                        ("Text\n1. \n<br>\n- Run tests and\n", [4]),
+                        ("Text\n* \n<br>\n- Run tests and\n", [4]),
+                        ("Text\n- \n<br>\n- Run tests and\n", []),
+                        # its lines are paragraph text: no HTML block starts in them
+                        ("Example:\n2. Steps\n   <details>\n   ```markdown\n- Run tests and\n   ```\n"
+                         "   </details>\n", []),
+                        ("Text\n2. Steps and\n   <details>\n", []),
+                        ("Text\n2. Steps\n    <details>\n- Run tests and\n", [4]),
+                        # a setext underline ends the paragraph, so "2." starts a list
+                        ("Setup\n=====\n2. Install\n   - Linux\n   <div>Note</div>\n- Run tests and\n", [6]),
+                        # a lazy underline is text, and "<br>" after the "2." item is a block
+                        ("- Setup\n=====\n2. Install\n<br>\n- Run tests and\n", [])):
         findings, _ = lint(text)
         assert [f["line"] for f in findings if f["rule"] == "dangling-conjunction"] == lines, (text, findings)
     # a quoted fence ends with its quote, and a deeper ">" in a fence is code
@@ -1992,9 +2033,9 @@ def selftest():
             ("---\n'description' : a; b\n---\n", [(2, 18, "semicolon")]),
             ("---\n\"description\": |\n  a; b\n---\n", [(3, 4, "semicolon")]),
             ("---\n\"descriptions\": a; b\n---\n", []),
-            # with the key twice, YAML keeps the last value
-            ("---\n\"description\": Read files.\ndescription: Read files; exit.\n---\n", [(3, 24, "semicolon")]),
-            ("---\ndescription: a; b\n\"description\": Read files.\n---\n", []),
+            # a later line that starts with the key can be in a quoted value of another key
+            ("---\ndescription: robust;\nexample: \"foo\ndescription: plain\"\n---\n",
+             [(2, 14, "marketing-adjective"), (2, 20, "semicolon")]),
             # a comment after a block scalar has less indent than its text
             ("---\ndescription: |\n    Use it.\n  # robust; note\n---\n", []),
             # quoted keys, keys with spaces and keys with other characters are YAML
