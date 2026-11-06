@@ -126,8 +126,9 @@ BLOCKQUOTE_PREFIX = re.compile(r"^ {0,3}(?:> ?)+")
 # A GitHub alert marker, alone on the first line of a quote: "> [!NOTE]".
 GITHUB_ALERT = re.compile(r"\[!(?:note|tip|important|warning|caution)\]", re.I)
 # MkDocs admonition title lines.
+# The optional "+" must appear directly after the ??? marker.
 ADMONITION_TITLE = re.compile(
-    r'^ {0,3}(?:!!!|\?\?\?)[ \t]*\+?[ \t]+[\w-]+(?:[ \t]+".*")?[ \t]*$'
+    r'^ {0,3}(?:!!!|\?\?\?)[+]?[ \t]+[\w-]+(?:[ \t]+".*")?[ \t]*$'
 )
 # Track ordinary block containers, not inline or void tags such as span or hr.
 HTML_BLOCK_TAG = re.compile(
@@ -1282,11 +1283,37 @@ def selftest():
     bad = ("The panel is removed; spin up the job. "
            "Perform an analysis of the seamless log. "
            "We have received the report.")
-    findings, _ = lint(bad)
-    rules = {f["rule"] for f in findings}
+    bad_findings, _ = lint(bad)
+    rules = {f["rule"] for f in bad_findings}
     for expected in ("semicolon", "phrasal-verb", "nominalization",
                      "marketing-adjective", "passive-voice", "present-perfect"):
-        assert expected in rules, expected
+        assert expected in rules, (expected, bad_findings)
+
+    # MkDocs admonition title variants.
+    for title in (
+        "!!! note",
+        "??? note",
+        "???+ note",
+        '!!! note "Quoted title"',
+    ):
+        assert ADMONITION_TITLE.fullmatch(title), title
+
+    # Long admonition titles are headings, not prose sentences.
+    long_title = '!!! note "' + " ".join(["title"] * 30) + '"'
+    findings, _ = lint(long_title)
+    assert not any(f["rule"] == "long-sentence" for f in findings), findings
+
+    # The body after an admonition title is still checked.
+    body = " ".join(["word"] * 26) + "."
+    findings, _ = lint("!!! note\n" + body)
+    long_sentences = [
+        f for f in findings if f["rule"] == "long-sentence"
+    ]
+    assert len(long_sentences) == 1, findings
+    assert long_sentences[0]["match"] == "26 words", findings
+
+    # A long whitespace-only title candidate must fail quickly.
+    assert not ADMONITION_TITLE.fullmatch("!!!" + " " * 32000)
     # hedges must never be flagged, including modal + perfect infinitive
     findings, _ = lint("The request may have failed. It could be a timeout. "
                        "The disk might have filled.")
