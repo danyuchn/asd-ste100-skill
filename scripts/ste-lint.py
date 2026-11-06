@@ -697,29 +697,31 @@ _BLOCK_TAGS = (
     "tr|track|ul"
 )
 HTML_BLOCK_KINDS = [
-    (re.compile(r"^ {0,3}<(?:script|pre|style|textarea)(?:\s|>|$)", re.I),
+    (re.compile(r"^ {0,3}<(?:script|pre|style|textarea)(?:[ \t]|>|$)", re.I),
      re.compile(r"</(?:script|pre|style|textarea)>", re.I)),
     (re.compile(r"^ {0,3}<!--"), re.compile(r"-->")),
     (re.compile(r"^ {0,3}<\?"), re.compile(r"\?>")),
     (re.compile(r"^ {0,3}<!\[CDATA\["), re.compile(r"\]\]>")),
     (re.compile(r"^ {0,3}<![A-Za-z]"), re.compile(r">")),
-    (re.compile(rf"^ {{0,3}}</?(?:{_BLOCK_TAGS})(?:\s|/?>|$)", re.I), None),
+    (re.compile(rf"^ {{0,3}}</?(?:{_BLOCK_TAGS})(?:[ \t]|/?>|$)", re.I), None),
 ]
+HTML_COMMENT_END = HTML_BLOCK_KINDS[1][1]
 # Type 7: one complete open or closing tag alone on its line (CommonMark 6.6 grammar).
-# It cannot interrupt a paragraph.
-_ATTRIBUTE = (r"\s+[A-Za-z_:][A-Za-z0-9_.:-]*"
-              r"(?:\s*=\s*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?")
+# It cannot interrupt a paragraph. In one line, CommonMark whitespace is a space or a
+# tab: a no-break space or another Unicode space is text, so the line is no tag.
+_ATTRIBUTE = (r"[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*"
+              r"(?:[ \t]*=[ \t]*(?:[^ \t\"'=<>`]+|'[^']*'|\"[^\"]*\"))?")
 # The names of type 1 (pre, script, style, textarea) never start a type 7 block,
 # as an open tag or as a closing tag. A custom name such as pre-x is no type 1 name.
 _TYPE1_NAME = r"(?!(?i:pre|script|style|textarea)(?![A-Za-z0-9-]))"
 HTML_TYPE7 = re.compile(
-    rf"^ {{0,3}}(?:<{_TYPE1_NAME}[A-Za-z][A-Za-z0-9-]*(?:{_ATTRIBUTE})*\s*/?>"
-    rf"|</{_TYPE1_NAME}[A-Za-z][A-Za-z0-9-]*\s*>)\s*$")
+    rf"^ {{0,3}}(?:<{_TYPE1_NAME}[A-Za-z][A-Za-z0-9-]*(?:{_ATTRIBUTE})*[ \t]*/?>"
+    rf"|</{_TYPE1_NAME}[A-Za-z][A-Za-z0-9-]*[ \t]*>)[ \t]*$")
 # Lines that end a paragraph and are no paragraph line, after the quote prefix: an ATX
 # heading and a thematic break of one repeated character. A quote line with no text
 # also ends a paragraph.
 NO_PARAGRAPH = re.compile(
-    r"^ {0,3}(?:#{1,6}(?:\s|$)|(?:-[ \t]*){3,}$|(?:\*[ \t]*){3,}$|(?:_[ \t]*){3,}$)")
+    r"^ {0,3}(?:#{1,6}(?:[ \t]|$)|(?:-[ \t]*){3,}$|(?:\*[ \t]*){3,}$|(?:_[ \t]*){3,}$)")
 # A setext underline. It ends a paragraph only when a paragraph is open at the same
 # quote depth. Else it is text, also as a lazy line after a quote (CommonMark 4.3).
 SETEXT_UNDERLINE = re.compile(r"^ {0,3}(?:=+|-+)[ \t]*$")
@@ -744,6 +746,17 @@ def _html_block_step(block, line, in_paragraph):
     if block is False:
         return bool(line.strip()), (block if line.strip() else None)
     return True, (None if block.search(line) else block)
+
+
+# GitHub shows the text of an HTML block of type 6 or 7. It also shows the text of a
+# <script>, <style> or <textarea> block, because it escapes these tags (tagfilter). It
+# shows a <pre> block as code, and it hides a comment and a "<?", "<!X" or CDATA block.
+SHOWN_TYPE1 = re.compile(r"^ {0,3}<(?i:script|style|textarea)(?:[ \t]|>|$)")
+
+
+def _block_shows_text(block, line):
+    """True when GitHub shows the text of the HTML BLOCK that starts on LINE as prose."""
+    return block is False or bool(SHOWN_TYPE1.match(line))
 
 
 def _is_list_continuation(line, content_indent):
@@ -824,22 +837,106 @@ def _dangling_conjunction_findings(text, filename):
     lines = text.splitlines()
     findings = []
     fence = None
+    # The HTML block open outside the item loop below, as _html_block_step returns it,
+    # the content indent of the list item that holds it (0: no item), and whether
+    # GitHub shows its text.
+    html_block, html_container, html_shows = None, 0, False
+    # The content indents of the list items that can still hold a line, outermost first.
+    open_items = []
+    # A paragraph is open before the line: a text line with less indent continues it
+    # (a lazy line). PARAGRAPH_INDENT is the content indent of the list item that holds
+    # the paragraph (0: no item), or None in a quote. As in cmark-gfm, type 7 cannot
+    # interrupt the paragraph on a line that is in that item too.
+    in_paragraph, paragraph_indent = False, None
+
+    def close_items(indent):
+        """A line with INDENT ends the list items with more content indent."""
+        while open_items and open_items[-1] > indent:
+            open_items.pop()
+
     index = 0
     while index < len(lines):
         line = lines[index]
+        if _fence_ends_with_quote(fence, line):
+            # The quote of the fence ended: judge this line as any other line.
+            fence = None
+        if fence is None:
+            # A line with less indent than the item that holds the block ends the item,
+            # and the block in it.
+            if html_block is not None and line.strip(" \t") and _indent_width(line) < html_container:
+                html_block = None
+            open_block = html_block
+            continues = (in_paragraph and paragraph_indent is not None
+                         and _indent_width(line) >= paragraph_indent)
+            in_html, html_block = _html_block_step(html_block, line, continues)
+            if in_html and open_block is None:
+                close_items(_indent_width(line))
+                html_container = open_items[-1] if open_items else 0
+                html_shows = _block_shows_text(html_block, line)
+            # An HTML block holds literal text: no fence opens in it, and outside list items
+            # no list item starts in it. In a list item, the text that GitHub shows in the
+            # block is item text, so a list marker there starts an item, as before.
+            if (in_html and open_block is not None and html_shows and html_container
+                    and LIST_ITEM_START.match(line)):
+                in_html, html_block = False, None
+            if in_html:
+                in_paragraph = False
+                index += 1
+                continue
         is_fence, fence = _fence_step(fence, line)
         if is_fence or fence:
+            if is_fence and fence is not None:
+                close_items(_indent_width(line))
+            in_paragraph = False
             index += 1
             continue
         start = LIST_ITEM_START.match(line)
         if not start:
+            # A blank line has only spaces and tabs: a no-break space is text. A line
+            # with only quote markers is blank in its quote.
+            depth, content = _strip_quotes(line.expandtabs(4))
+            # A setext underline in the container of the paragraph makes it a heading,
+            # so the paragraph ends. As a lazy line it is text (CommonMark 4.3).
+            underline = (in_paragraph and paragraph_indent is not None and not depth
+                         and _indent_width(line) >= paragraph_indent
+                         and SETEXT_UNDERLINE.match(content))
+            text_line = (bool(content.strip(" \t")) and not NO_PARAGRAPH.match(content)
+                         and not underline)
+            if line.strip(" \t") and not (in_paragraph and text_line and not depth):
+                close_items(_indent_width(line))
+                paragraph_indent = None if depth else (open_items[-1] if open_items else 0)
+            in_paragraph = text_line
             index += 1
             continue
 
+        # A list item that starts with a number other than 1, and an empty list item,
+        # cannot interrupt a paragraph (CommonMark 5.2): GitHub reads the line as text of
+        # the paragraph. An empty "-" item there is a setext underline, so the paragraph
+        # ends. The pass still reads the lines of the item, but with no HTML block in them
+        # (they are paragraph text), and after the item the paragraph stays open in its
+        # container. The item is not open for later lines.
+        marker, body = start.group("marker"), start.group("body")
+        outer_paragraph = (in_paragraph and paragraph_indent is not None
+                           and _indent_width(line) >= paragraph_indent
+                           and ((marker[:-1].isdigit() and marker[:-1].lstrip("0") != "1")
+                                or (not body.strip(" \t") and marker != "-")))
+        outer_indent = paragraph_indent
+        close_items(len(start.group("indent")))
         content_indent = (len(start.group("indent"))
                           + len(start.group("marker"))
                           + len(start.group("gap")))
-        item_lines = [(index, start.group("body"))]
+        if not outer_paragraph:
+            open_items.append(content_indent)
+        # An HTML block can start on the line of the marker. It is in the item, and it
+        # ends when the item ends. After five or more spaces the text is indented code.
+        body_html, item_html, item_shows = False, None, False
+        if not outer_paragraph and len(start.group("gap")) <= 4:
+            body_html, item_html = _html_block_step(None, body, False)
+            item_shows = _block_shows_text(item_html, body)
+        item_paragraph = outer_paragraph or (bool(body.strip(" \t")) and not body_html
+                                             and not NO_PARAGRAPH.match(body))
+        # A block of code or hidden text that stays open shows no item text (see below).
+        item_lines = [] if item_html and not item_shows else [(index, body)]
         next_index = index + 1
         item_fence = None
         while next_index < len(lines):
@@ -847,16 +944,57 @@ def _dangling_conjunction_findings(text, filename):
             if _fence_ends_with_quote(item_fence, candidate):
                 # The quote of the fence ended: judge this line as any other line.
                 item_fence = None
+            if item_html is HTML_COMMENT_END:
+                # GitHub hides the text from "<!--" up to "-->", also over the end of the
+                # item and over the next items. The text after "-->" joins this item. No
+                # item, block or fence starts in the comment.
+                end = HTML_COMMENT_END.search(candidate)
+                if end:
+                    item_html = None
+                    # spaces keep the columns
+                    item_lines.append((next_index, " " * end.end() + candidate[end.end():]))
+                item_paragraph = False
+                next_index += 1
+                continue
+            in_html = hidden = False
+            if item_fence is None and not outer_paragraph:
+                if candidate.strip() and _indent_width(candidate) < content_indent:
+                    item_html = None  # the line ends the item, and the HTML block in it
+                else:
+                    # The item holds its lines from the content indent on.
+                    open_block = item_html
+                    rest = candidate.expandtabs(4)[content_indent:]
+                    in_html, item_html = _html_block_step(open_block, rest, item_paragraph)
+                    if in_html and open_block is None:
+                        item_shows = _block_shows_text(item_html, rest)
+                    # A <pre> block holds code, and GitHub hides a comment and a "<?", "<!X"
+                    # or CDATA block. As in a fence, the lines of such a block, from its
+                    # first line up to its last line, are no item text, and no list item
+                    # starts there. The last line can show text after the end of the block.
+                    # (An open end pattern is not None or False.)
+                    hidden = bool(item_html) and not item_shows
+            if hidden:
+                item_paragraph = False
+                next_index += 1
+                continue
             # A line outside the item ends it, also when it opens a fence.
             if item_fence is None and not _is_list_continuation(candidate, content_indent):
                 break
             # Fence delimiters are state markers, not meaningful item lines.
-            is_fence, item_fence = _fence_step(item_fence, candidate)
-            if is_fence or item_fence:
-                next_index += 1
-                continue
+            # In an HTML block, a fence line is text.
+            if not in_html:
+                is_fence, item_fence = _fence_step(item_fence, candidate)
+                if is_fence or item_fence:
+                    item_paragraph = False
+                    next_index += 1
+                    continue
             item_lines.append((next_index, candidate))
+            item_paragraph = (not in_html and bool(candidate.strip(" \t"))
+                              and not NO_PARAGRAPH.match(candidate.expandtabs(4)[content_indent:]))
             next_index += 1
+        # The line after the item can continue the last paragraph of the item.
+        in_paragraph = item_paragraph
+        paragraph_indent = outer_indent if outer_paragraph else content_indent
 
         meaningful = []
         for line_index, item_line in item_lines:
@@ -905,7 +1043,8 @@ _YAML_KEY = (r"""(?:"(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[^\s#'"\[\]{},&*!|>%@`-]\S*
              r"[ \t]*:(?:[ \t]|$)")
 FRONT_MATTER_KEY = re.compile(_YAML_KEY)
 FRONT_MATTER_LINE = re.compile(_YAML_KEY + r"|-(?:[ \t]|$)|[ \t]+\S|#")
-DESCRIPTION_KEY = re.compile(r"description[ \t]*:(?:[ \t]+|$)")
+# The key "description", plain or in quotes.
+DESCRIPTION_KEY = re.compile(r"""(?:description|"description"|'description')[ \t]*:(?:[ \t]+|$)""")
 # A block scalar indicator ("|", ">-", "|2+"), with an optional comment.
 BLOCK_SCALAR = re.compile(r"[|>][1-9+-]{0,2}(?:[ \t]+#.*)?")
 # A YAML comment in a plain scalar: "#" at the start or after a space or tab.
@@ -992,6 +1131,8 @@ def _front_matter(text):
             or not all(FRONT_MATTER_LINE.match(line) for line in body)):
         return text, []
     pieces = []
+    # "description" in quotes is the same key. The first key counts: a later line that
+    # starts with the key can be in a quoted value that goes on over lines.
     for index in range(1, end):
         key = DESCRIPTION_KEY.match(lines[index])
         if key:
@@ -1341,6 +1482,80 @@ def selftest():
     assert findings == [], findings
     findings, _ = lint("- Do this\n  ````md\n  ```\n  code and\n  ````\n- Do that")
     assert findings == [], findings
+    # it tracks HTML blocks: there no fence opens and no list item starts
+    for text, lines in (("<div>\n```\n</div>\n\n- Open the valve and\n", [5]),
+                        ("<!--\n```\n-->\n- Open the valve and\n", [4]),
+                        ("<div>\n- Open the valve and\n</div>\n", []),
+                        ("- x\n<div>\n- y and\n", []),
+                        # an HTML block in an item, also on the line of the marker
+                        ("- Open the valve\n\n  <div>\n  ```\n  </div>\n\n- Close it and\n", [7]),
+                        ("- x\n  - y\n  <div>\n  ```\n  </div>\n\n- z and\n", [7]),
+                        ("- <pre>\n  ```\n  </pre>\n- y and\n", [4]),
+                        # a line with less indent ends the item, and the HTML block in it
+                        ("- x\n  <div>\n- y and\n", [3]),
+                        ("- <pre>\n```\n- y and\n```\n", []),
+                        ("- a\n  - b\n  <div>\n- c and\n", [4]),
+                        # the lines in a <pre> block or a comment are no item text, and no
+                        # item starts there; GitHub hides the text after an open comment
+                        ("- Close it\n  <pre>\n  ```\n  - Step and\n- Next\n", []),
+                        ("- a\n  <!--\n  x\n- b and\n", []),
+                        ("- a\n  <?php\n  x and\n- b\n", []),
+                        # an open comment joins the next items up to "-->"
+                        ("- Run tests and\n  <!-- pending\n- Next:\n  <!-- closes -->\n  finish the checklist.\n", []),
+                        ("- Run tests and\n  <!-- pending\n- Next\n", [1]),
+                        # also the first line of such a block, when the block stays open
+                        ("- Change summary:\n  <!-- Explain the change and\n  include test results.\n", []),
+                        ("- <pre>Expected an expression after and\n  at parser.py:12\n", []),
+                        ("- Fix it\n  <!-- old -->\n  <pre>a</pre> and\n", [3]),
+                        # GitHub shows the text of a <script> block: it escapes the tag
+                        ("- a\n  <script>\n  x and\n- b\n", [3]),
+                        ("- a\n  <!--\n- b and\n\n<div>\n-->\n</div>\n\n- c and\n", [9]),
+                        # in an item, the text of a <div> block is item text: a list marker
+                        # there starts an item, as before
+                        ("- <div>\n  ```\n  - Step and\n- Next\n", [3]),
+                        ("- a\n  - b\n  <div>\n  - c and\n  </div>\n", [4]),
+                        ("  <!--\n  ```\n- Open it and\n", []),
+                        # one tag alone after a text line continues the paragraph, so the
+                        # fence after it opens
+                        ("Text\n<span>\n```\n```\n- a and\n", [5]),
+                        ("- x\n  <span>\n  ```\n  - y and\n  ```\n", []),
+                        # a no-break space is no whitespace in a tag
+                        ("<div\u00a0class=\"note\">\n- Next and\n", [2]),
+                        ("<br/>\u00a0\n- Next and\n", [2]),
+                        # a line with a no-break space is text, also after "#"
+                        ("#\u00a0Notes\n<img src=\"a.png\">\n- Run checks and\n", [3]),
+                        ("Text\n\u00a0\n<img src=\"a.png\">\n- Run checks and\n", [4]),
+                        # a line with only ">" ends the paragraph, and a heading in a quote too
+                        (">\n<img src=\"a.png\">\n- Run checks and\n", []),
+                        ("> # Head\n<img src=\"a.png\">\n- Run checks and\n", []),
+                        # a tag alone interrupts a paragraph of a quote or of an item that
+                        # the line is not in, as in cmark-gfm
+                        ("> Note\n<img src=\"a.png\">\n- Run checks and\n", []),
+                        ("- a\n<span>\n- b and\n", []),
+                        ("- a\nlazy\n<span>\n- b and\n", []),
+                        ("- a\n  - b\n  text\n  <span>\n  ```\n  ```\n- c and\n", [7]),
+                        ("- a\n  - b\n\n  text\n  <span>\n  ```\n  ```\n- c and\n", [8]),
+                        # "2." cannot interrupt a paragraph, so the tag line is paragraph text
+                        ("Text\n2. Example\n<br>\n- Open the valve and\n", [4]),
+                        ("- a\n  Text\n  2. Example\n  <br>\n- Open the valve and\n", [5]),
+                        ("Text\n1. Example\n<br>\n- Open the valve and\n", []),
+                        ("Screenshot:\n2. <img src=\"example.png\">\n<br>\n- Run tests and\n", [4]),
+                        ("Text\n2. # Heading\n<br>\n- Run tests and\n", [4]),
+                        # an empty item cannot interrupt a paragraph; an empty "-" is a setext underline
+                        ("Text\n1. \n<br>\n- Run tests and\n", [4]),
+                        ("Text\n* \n<br>\n- Run tests and\n", [4]),
+                        ("Text\n- \n<br>\n- Run tests and\n", []),
+                        # its lines are paragraph text: no HTML block starts in them
+                        ("Example:\n2. Steps\n   <details>\n   ```markdown\n- Run tests and\n   ```\n"
+                         "   </details>\n", []),
+                        ("Text\n2. Steps and\n   <details>\n", []),
+                        ("Text\n2. Steps\n    <details>\n- Run tests and\n", [4]),
+                        # a setext underline ends the paragraph, so "2." starts a list
+                        ("Setup\n=====\n2. Install\n   - Linux\n   <div>Note</div>\n- Run tests and\n", [6]),
+                        # a lazy underline is text, and "<br>" after the "2." item is a block
+                        ("- Setup\n=====\n2. Install\n<br>\n- Run tests and\n", [])):
+        findings, _ = lint(text)
+        assert [f["line"] for f in findings if f["rule"] == "dangling-conjunction"] == lines, (text, findings)
     # a quoted fence ends with its quote, and a deeper ">" in a fence is code
     for text, lines in (("> ```\n> code\n\nProse; here.", [4]),
                         ("```\n> ```\nx; y\n```\n\nProse; here.", [6]),
@@ -1813,6 +2028,14 @@ def selftest():
             ("---\ndescription: 'It''s robust' # c\n---\n", [(2, 21, "marketing-adjective")]),
             ("---\ndescription: >\n  a # robust; b\n---\n", [(3, 7, "marketing-adjective"), (3, 13, "semicolon")]),
             ("---\ndescription: a#b; c\n---\n", [(2, 17, "semicolon")]),
+            # the key "description" in quotes is the same key
+            ("---\n\"description\": robust;\n---\n", [(2, 16, "marketing-adjective"), (2, 22, "semicolon")]),
+            ("---\n'description' : a; b\n---\n", [(2, 18, "semicolon")]),
+            ("---\n\"description\": |\n  a; b\n---\n", [(3, 4, "semicolon")]),
+            ("---\n\"descriptions\": a; b\n---\n", []),
+            # a later line that starts with the key can be in a quoted value of another key
+            ("---\ndescription: robust;\nexample: \"foo\ndescription: plain\"\n---\n",
+             [(2, 14, "marketing-adjective"), (2, 20, "semicolon")]),
             # a comment after a block scalar has less indent than its text
             ("---\ndescription: |\n    Use it.\n  # robust; note\n---\n", []),
             # quoted keys, keys with spaces and keys with other characters are YAML
