@@ -125,6 +125,12 @@ STANDALONE_LINE = re.compile(r"^ {0,3}(?:#|<|(?:[-*_=] *){3,}$)")
 BLOCKQUOTE_PREFIX = re.compile(r"^ {0,3}(?:> ?)+")
 # A GitHub alert marker, alone on the first line of a quote: "> [!NOTE]".
 GITHUB_ALERT = re.compile(r"\[!(?:note|tip|important|warning|caution)\]", re.I)
+# MkDocs admonition title lines. Four spaces allow a title inside a list item.
+# Only ??? admonitions support the collapsible "+" marker.
+ADMONITION_TITLE = re.compile(
+    r'^ {0,4}(?:!!!|\?\?\?\+?)[ \t]*[\w-]+'
+    r'(?:[ \t]+[\w-]+)*(?:[ \t]+".*")?[ \t]*$'
+)
 # Track ordinary block containers, not inline or void tags such as span or hr.
 HTML_BLOCK_TAG = re.compile(
     r"<(/?)(address|article|aside|blockquote|body|caption|center|dd|details|"
@@ -1044,7 +1050,8 @@ def lint(text, filename="<stdin>"):
         findings.extend(_long_sentence_findings(block, filename))
         block.clear()
 
-    def check(lineno, segment, source_column, line, skip, is_table):
+    def check(lineno, segment, source_column, line, skip, is_table,
+              add_to_block=True):
         nonlocal words_total
         words_total += len(line.split())
         for rule_id, level, pattern, msg in RULES:
@@ -1066,7 +1073,8 @@ def lint(text, filename="<stdin>"):
                     seen_synonyms[(gi, base)] = (
                         lineno, source_column + m.start() + 1, m.group(0)
                     )
-        if line[skip:].strip():
+        # This flag affects sentence blocks only; rule checks still scan the line.
+        if add_to_block and line[skip:].strip():
             block.append((lineno, source_column + skip, line[skip:]))
 
     # The description in the front matter is one paragraph of prose.
@@ -1198,7 +1206,8 @@ def lint(text, filename="<stdin>"):
         alert = (not html_containers and raw_line.startswith(">") and after_boundary
                  and quote.group().count(">") == 1
                  and GITHUB_ALERT.fullmatch(content.strip()))
-        standalone = STANDALONE_LINE.match(content) or alert
+        admonition_title = bool(ADMONITION_TITLE.match(content))
+        standalone = STANDALONE_LINE.match(content) or admonition_title or alert
         if (is_table or not content.strip() or standalone
                 or ANY_LIST_ITEM.match(content) or is_quote != in_quote
                 # a deeper quote starts a new paragraph, so the text before it is no context
@@ -1233,7 +1242,10 @@ def lint(text, filename="<stdin>"):
             marker = None if is_table else ANY_LIST_ITEM.match(segment[skip:])
             if marker:
                 skip += marker.end()
-            check(lineno, segment, source_column, line, skip, is_table)
+            check(
+                lineno, segment, source_column, line, skip, is_table,
+                add_to_block=not admonition_title,
+            )
             if is_table:
                 flush()  # each table cell is its own block
         if standalone:
@@ -1273,11 +1285,54 @@ def selftest():
     bad = ("The panel is removed; spin up the job. "
            "Perform an analysis of the seamless log. "
            "We have received the report.")
-    findings, _ = lint(bad)
-    rules = {f["rule"] for f in findings}
+    bad_findings, _ = lint(bad)
+    rules = {f["rule"] for f in bad_findings}
     for expected in ("semicolon", "phrasal-verb", "nominalization",
                      "marketing-adjective", "passive-voice", "present-perfect"):
-        assert expected in rules, expected
+        assert expected in rules, (expected, bad_findings)
+
+    # MkDocs admonition title variants, including multiple classes and no space.
+    for title in (
+        "!!! note",
+        "!!!note",
+        "!!! info inline end \"Title\"",
+        "!!! danger highlight blink \"Title\"",
+        "??? note",
+        "???+ note",
+        '!!! note "Quoted title"',
+    ):
+        assert ADMONITION_TITLE.fullmatch(title), title
+    for title in ("!!!+ note", "!!!+note"):
+        assert not ADMONITION_TITLE.fullmatch(title), title
+
+    # Long admonition titles are headings, not prose sentences.
+    long_title = '!!! note "' + " ".join(["title"] * 30) + '"'
+    findings, _ = lint(long_title)
+    assert not any(f["rule"] == "long-sentence" for f in findings), findings
+
+    # A standalone title does not join the four-space-indented body sentence.
+    body = " ".join(["word"] * 26) + "."
+    findings, _ = lint('!!! note "Title"\n    ' + body)
+    long_sentences = [
+        f for f in findings if f["rule"] == "long-sentence"
+    ]
+    assert len(long_sentences) == 1, findings
+    assert long_sentences[0]["match"] == "26 words", findings
+
+    # A four-space-indented title inside a list item is also standalone.
+    list_title = '!!! info inline end "' + " ".join(["title"] * 30) + '"'
+    findings, _ = lint("- item\n    " + list_title + "\n        " + body)
+    long_sentences = [
+        f for f in findings if f["rule"] == "long-sentence"
+    ]
+    assert len(long_sentences) == 1, findings
+    assert long_sentences[0]["line"] == 3, findings
+    assert long_sentences[0]["match"] == "26 words", findings
+
+    # A long whitespace-only title candidate must fail quickly.
+    assert not ADMONITION_TITLE.fullmatch("!!!" + " " * 32000)
+    # Many class words followed by a broken title must also fail without backtracking.
+    assert not ADMONITION_TITLE.fullmatch("!!! " + "info " * 16000 + '"')
     # hedges must never be flagged, including modal + perfect infinitive
     findings, _ = lint("The request may have failed. It could be a timeout. "
                        "The disk might have filled.")
