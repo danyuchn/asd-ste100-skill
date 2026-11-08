@@ -862,23 +862,33 @@ def _dangling_conjunction_findings(text, filename):
             fence = None
         if fence is None:
             # A line with less indent than the item that holds the block ends the item,
-            # and the block in it.
-            if html_block is not None and line.strip(" \t") and _indent_width(line) < html_container:
+            # and the block in it. GitHub still hides the text after an open comment up to
+            # "-->", as in the item loop below.
+            if (html_block is not None and html_block is not HTML_COMMENT_END
+                    and line.strip(" \t") and _indent_width(line) < html_container):
                 html_block = None
             open_block = html_block
             continues = (in_paragraph and paragraph_indent is not None
                          and _indent_width(line) >= paragraph_indent)
-            in_html, html_block = _html_block_step(html_block, line, continues)
+            # A block starts at the indent of the list item that holds the line, not at
+            # the start of the line.
+            line_indent = _indent_width(line)
+            block_indent = next((indent for indent in reversed(open_items)
+                                 if indent <= line_indent), 0)
+            block_line = line.expandtabs(4)[block_indent:]
+            in_html, html_block = _html_block_step(html_block, block_line, continues)
             if in_html and open_block is None:
-                close_items(_indent_width(line))
+                close_items(line_indent)
                 html_container = open_items[-1] if open_items else 0
-                html_shows = _block_shows_text(html_block, line)
+                html_shows = _block_shows_text(html_block, block_line)
             # An HTML block holds literal text: no fence opens in it, and outside list items
             # no list item starts in it. In a list item, the text that GitHub shows in the
-            # block is item text, so a list marker there starts an item, as before.
-            if (in_html and open_block is not None and html_shows and html_container
-                    and LIST_ITEM_START.match(line)):
-                in_html, html_block = False, None
+            # block is item text, so a list marker there starts an item, as before. The
+            # block stays open after that item, so a fence line in it is still text. The
+            # line that ends the block is in the block, so no item starts on it.
+            if (in_html and open_block is not None and html_block is not None
+                    and html_shows and html_container and LIST_ITEM_START.match(line)):
+                in_html = False
             if in_html:
                 in_paragraph = False
                 index += 1
@@ -925,12 +935,15 @@ def _dangling_conjunction_findings(text, filename):
         content_indent = (len(start.group("indent"))
                           + len(start.group("marker"))
                           + len(start.group("gap")))
-        if not outer_paragraph:
+        # A list marker in an open HTML block around the item is text of the block on
+        # GitHub, so the item is not open for later lines (see the item loop below).
+        if not outer_paragraph and html_block is None:
             open_items.append(content_indent)
         # An HTML block can start on the line of the marker. It is in the item, and it
         # ends when the item ends. After five or more spaces the text is indented code.
         body_html, item_html, item_shows = False, None, False
-        if not outer_paragraph and len(start.group("gap")) <= 4:
+        # In an open HTML block around the item, the body is text of that block.
+        if html_block is None and not outer_paragraph and len(start.group("gap")) <= 4:
             body_html, item_html = _html_block_step(None, body, False)
             item_shows = _block_shows_text(item_html, body)
         item_paragraph = outer_paragraph or (bool(body.strip(" \t")) and not body_html
@@ -941,6 +954,26 @@ def _dangling_conjunction_findings(text, filename):
         item_fence = None
         while next_index < len(lines):
             candidate = lines[next_index]
+            # An open HTML block around this item (a list marker in it started the item,
+            # see above) goes on over the lines of the item, as raw item text, up to a
+            # blank line, its end pattern or a line with less indent than its container.
+            if html_block is not None:
+                if candidate.strip(" \t") and _indent_width(candidate) < html_container:
+                    html_block = None
+                else:
+                    in_outer_html, html_block = _html_block_step(html_block, candidate, False)
+                    if html_block is None:
+                        # The block ended. GitHub reads the next lines in its container.
+                        content_indent = html_container
+                    if in_outer_html:
+                        # The line that ends the block is in it, also after a list marker.
+                        if (html_block is not None
+                                and not _is_list_continuation(candidate, content_indent)):
+                            break
+                        item_lines.append((next_index, candidate))
+                        item_paragraph = False
+                        next_index += 1
+                        continue
             if _fence_ends_with_quote(item_fence, candidate):
                 # The quote of the fence ended: judge this line as any other line.
                 item_fence = None
@@ -977,8 +1010,10 @@ def _dangling_conjunction_findings(text, filename):
                 item_paragraph = False
                 next_index += 1
                 continue
-            # A line outside the item ends it, also when it opens a fence.
-            if item_fence is None and not _is_list_continuation(candidate, content_indent):
+            # A line outside the item ends it, also when it opens a fence. The line that ends
+            # an HTML block of the item is in the block, also after a list marker.
+            if (item_fence is None and not _is_list_continuation(candidate, content_indent)
+                    and not (in_html and item_html is None)):
                 break
             # Fence delimiters are state markers, not meaningful item lines.
             # In an HTML block, a fence line is text.
@@ -992,6 +1027,13 @@ def _dangling_conjunction_findings(text, filename):
             item_paragraph = (not in_html and bool(candidate.strip(" \t"))
                               and not NO_PARAGRAPH.match(candidate.expandtabs(4)[content_indent:]))
             next_index += 1
+        # A list marker in a block of the item whose text GitHub shows ends the item, as
+        # before, but on GitHub the block goes on. Hand it on, so that the lines after the
+        # next item are still in it.
+        if (item_html is not None and next_index < len(lines)
+                and LIST_ITEM_START.match(lines[next_index])
+                and _indent_width(lines[next_index]) >= content_indent):
+            html_block, html_container, html_shows = item_html, content_indent, item_shows
         # The line after the item can continue the last paragraph of the item.
         in_paragraph = item_paragraph
         paragraph_indent = outer_indent if outer_paragraph else content_indent
@@ -1553,7 +1595,23 @@ def selftest():
                         # a setext underline ends the paragraph, so "2." starts a list
                         ("Setup\n=====\n2. Install\n   - Linux\n   <div>Note</div>\n- Run tests and\n", [6]),
                         # a lazy underline is text, and "<br>" after the "2." item is a block
-                        ("- Setup\n=====\n2. Install\n<br>\n- Run tests and\n", [])):
+                        ("- Setup\n=====\n2. Install\n<br>\n- Run tests and\n", []),
+                        # an HTML block in an item goes on after a list marker in it
+                        ("- <div>\n  ~~~\n  - Note\n  ~~~\n  </div>\n\n- Open the valve and\n", [7]),
+                        ("1. <details>\n   ~~~\n   - Linux\n   ~~~\n   </details>\n\n2. Run tests and\n", [7]),
+                        ("- <div>\n  - Note\n\n  ~~~\n  - x and\n  ~~~\n- y and\n", [7]),
+                        ("- <div>\n  ~~~\n  - Note\n    ~~~\n  </div>\n\n- Open the valve and\n", [7]),
+                        # a block starts at the indent of the item that holds the line
+                        ("- Example:\n  - Linux\n  <div>\n  ~~~\n  </div>\n\n    <div>\n    ~~~\n    </div>\n\n"
+                         "- Run tests and\n", [11]),
+                        # after the block, the lines are in the item that held the block
+                        ("- <div>\n  ~~~\n  - Note\n  </div>\n\n    <div>\n  ~~~\n    </div>\n\n- Run tests and\n",
+                         [10]),
+                        ("- <div>\n  ~~~\n  - Note\n\n    <div>\n  ~~~\n    </div>\n\n- Run tests and\n", [9]),
+                        # a list marker on the line that ends the block is text of the block
+                        ("- <textarea>\n  ~~~\n  - Note </textarea>\n\n    <div>\n  ~~~\n    </div>\n\n"
+                         "- Run tests and\n", [9]),
+                        ("- <pre>\n  ~~~\n  - Note </pre>\n\n    <div>\n  ~~~\n    </div>\n\n- Run tests and\n", [9])):
         findings, _ = lint(text)
         assert [f["line"] for f in findings if f["rule"] == "dangling-conjunction"] == lines, (text, findings)
     # a quoted fence ends with its quote, and a deeper ">" in a fence is code
