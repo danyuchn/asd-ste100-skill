@@ -938,9 +938,12 @@ def _dangling_conjunction_findings(text, filename):
                                 or (not body.strip(" \t") and marker != "-")))
         outer_indent = paragraph_indent
         close_items(len(start.group("indent")))
-        content_indent = (len(start.group("indent"))
-                          + len(start.group("marker"))
-                          + len(start.group("gap")))
+        # After five or more spaces the text is indented code, and the content column
+        # is one space after the marker (CommonMark 5.2).
+        gap = len(start.group("gap"))
+        if gap > 4 and body.strip(" \t"):
+            gap = 1
+        content_indent = len(start.group("indent")) + len(start.group("marker")) + gap
         # A list marker in an open HTML block around the item is text of the block on
         # GitHub, so the item is not open for later lines (see the item loop below).
         if not outer_paragraph and html_block is None:
@@ -1653,6 +1656,7 @@ def selftest():
                         ("- Setup\n=====\n2. Install\n<br>\n- Run tests and\n", []),
                         # an HTML block in an item goes on after a list marker in it
                         ("- <div>\n  ~~~\n  - Note\n  ~~~\n  </div>\n\n- Open the valve and\n", [7]),
+                        ("-     code\n  <div>Note</div>\n- Open the valve and\n", [3]),
                         ("1. <details>\n   ~~~\n   - Linux\n   ~~~\n   </details>\n\n2. Run tests and\n", [7]),
                         ("- <div>\n  - Note\n\n  ~~~\n  - x and\n  ~~~\n- y and\n", [7]),
                         ("- <div>\n  ~~~\n  - Note\n    ~~~\n  </div>\n\n- Open the valve and\n", [7]),
