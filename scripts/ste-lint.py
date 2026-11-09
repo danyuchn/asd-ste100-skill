@@ -1014,17 +1014,26 @@ def _dangling_conjunction_findings(text, filename):
         body_fence = None
         # In an open HTML block around the item, the body is text of that block.
         if html_block is None and not outer_paragraph and len(start.group("gap")) <= 4:
-            body_fence = _fence_step(None, " " * content_indent + body)[1]
+            # After five or more columns (a tab goes to the next tab stop), the text is
+            # indented code, not a fence.
+            if not code_body:
+                body_fence = _fence_step(None, " " * content_indent + body)[1]
             marker_fences = marker_fences or body_fence is not None
             if body_fence is None:
                 body_html, item_html = _html_block_step(None, body, False)
                 item_shows = _block_shows_text(item_html, body)
+            else:
+                # The item holds the fence from the column where its body starts, also
+                # after a tab in the gap, and it ends with the first line with less indent.
+                content_indent = expanded.start("body")
         item_paragraph = outer_paragraph or (bool(body.strip(" \t")) and not body_html
                                              and body_fence is None and not code_body
                                              and not NO_PARAGRAPH.match(body))
         # A block of code or hidden text that stays open shows no item text (see below),
-        # and the line that opens a fence is no item text.
-        item_lines = [] if (item_html and not item_shows) or body_fence else [(index, body)]
+        # and the line that opens a fence, or indented code after the marker, is no item
+        # text.
+        item_lines = ([] if (item_html and not item_shows) or body_fence or code_body
+                      else [(index, body)])
         next_index = index + 1
         # The fence of the item, and the content indent of the item (or of the nested
         # item, see below) when the fence opened on the line of its marker (else 0).
@@ -1808,7 +1817,12 @@ def selftest():
                         ("- ~~~\n  ~~~\n  - Note and\n", [3]),
                         ("- ```\n  code\n  ```\n\n  ```\n  more\n\n- Run tests and\n", [8]),
                         ("-\t~~~\n    code\n    ~~~\n    ~~~\n    more\n- Run tests and\n", [6]),
-                        ("- Parent\n  -\t~~~\n      code\n      ~~~\n  ~~~\n  more\n- Run tests and\n", [7])):
+                        ("- Parent\n  -\t~~~\n      code\n      ~~~\n  ~~~\n  more\n- Run tests and\n", [7]),
+                        # a tab in the gap goes to the next tab stop, also for such a fence
+                        ("- \t~~~\n  - Run tests and\n", [2]),
+                        ("- \t\t~~~\n  - Run tests and\n", [2]),
+                        # indented code after the marker is no item text
+                        ("-     Step and\n- Run tests\n", [])):
         findings, _ = lint(text)
         assert [f["line"] for f in findings if f["rule"] == "dangling-conjunction"] == lines, (text, findings)
     # a quoted fence ends with its quote, and a deeper ">" in a fence is code
