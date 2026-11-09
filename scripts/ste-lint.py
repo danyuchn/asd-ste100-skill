@@ -1001,11 +1001,16 @@ def _dangling_conjunction_findings(text, filename):
         # A tab in the gap goes to the next tab stop. Indented code is no paragraph.
         expanded = LIST_ITEM_START.match(line.expandtabs(4))
         code_body = len(expanded.group("gap")) > 4
+        # The content column of the item on GitHub, for a fence in the item (see the
+        # fence step below), or None. An empty item ends at a blank line after its marker.
+        fence_column = None
         if not outer_paragraph and html_block is None:
             item_indent = expanded.start("body")
             if code_body or not body.strip(" \t"):
                 item_indent = expanded.end("marker") + 1
             open_items.append(item_indent)
+            if body.strip(" \t") or (index + 1 < len(lines) and lines[index + 1].strip(" \t")):
+                fence_column = item_indent
         # An HTML block can start on the line of the marker. It is in the item, and it
         # ends when the item ends. After five or more spaces the text is indented code.
         body_html, item_html, item_shows = False, None, False
@@ -1144,6 +1149,17 @@ def _dangling_conjunction_findings(text, filename):
                 elif is_fence and marker_fences and not outer_paragraph:
                     # After a fence on a marker line, a fence ends with its item (see above).
                     fence_indent = nested_indent if nested_indent is not None else content_indent
+                    # On GitHub the item holds its lines from its content column on: one column
+                    # after the marker in an empty item or after indented code, and after a tab
+                    # in the gap at the next tab stop. A fence line from that column on, with
+                    # less than four columns more indent, is a fence of the item there. A fence
+                    # line with less indent ends the item, and the fence opens after it.
+                    if nested_indent is None and fence_column is not None:
+                        if fence_column <= _indent_width(candidate) < fence_column + 4:
+                            fence_indent = fence_column
+                        elif _indent_width(candidate) < fence_column:
+                            item_fence, fence_indent = None, 0
+                            break
                 if is_fence or item_fence:
                     item_paragraph = False
                     next_index += 1
@@ -1822,7 +1838,12 @@ def selftest():
                         ("- \t~~~\n  - Run tests and\n", [2]),
                         ("- \t\t~~~\n  - Run tests and\n", [2]),
                         # indented code after the marker is no item text
-                        ("-     Step and\n- Run tests\n", [])):
+                        ("-     Step and\n- Run tests\n", []),
+                        # an empty item holds its lines from one column after the marker,
+                        # and a tab in the gap goes to the next tab stop, also for a later fence
+                        ("- ```\n  ```\n\n-   \n    ~~~\n  - Run tests and\n  ~~~\n", []),
+                        ("- ~~~\n  ~~~\n\n- \tStep\n    ~~~\n  - Run tests and\n", [6]),
+                        ("- ```\n  ```\n\n- \tcode\n   ~~~\n- Run tests and\n", [])):
         findings, _ = lint(text)
         assert [f["line"] for f in findings if f["rule"] == "dangling-conjunction"] == lines, (text, findings)
     # a quoted fence ends with its quote, and a deeper ">" in a fence is code
