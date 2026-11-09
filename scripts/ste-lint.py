@@ -843,6 +843,14 @@ def _dangling_conjunction_findings(text, filename):
     lines = text.splitlines()
     findings = []
     fence = None
+    # The content indent of the list item whose marker line opened FENCE (0: none). On
+    # GitHub such a fence ends with its item at the latest.
+    fence_container = 0
+    # True after a fence on the line of a list marker (see below). From there on, a
+    # fence that opens in a list item ends with its item, as on GitHub. Before it, such
+    # a fence can go on after the item, as in the earlier versions of this pass, so a
+    # document with no fence on a marker line keeps its findings.
+    marker_fences = False
     # The HTML block open outside the item loop below, as _html_block_step returns it,
     # the content indent of the list item that holds it (0: no item), and whether
     # GitHub shows its text.
@@ -863,10 +871,14 @@ def _dangling_conjunction_findings(text, filename):
     index = 0
     while index < len(lines):
         line = lines[index]
+        if (fence is not None and fence_container and line.strip(" \t")
+                and _indent_width(line) < fence_container):
+            fence = None
         if _fence_ends_with_quote(fence, line):
             # The quote of the fence ended: judge this line as any other line.
             fence = None
         if fence is None:
+            fence_container = 0
             # A line with less indent than the item that holds the block ends the item,
             # and the block in it. GitHub still hides the text after an open comment up to
             # "-->", as in the item loop below.
@@ -903,6 +915,8 @@ def _dangling_conjunction_findings(text, filename):
         if is_fence or fence:
             if is_fence and fence is not None:
                 close_items(_indent_width(line))
+                if marker_fences and open_items:
+                    fence_container = open_items[-1]
             in_paragraph = False
             index += 1
             continue
@@ -918,9 +932,45 @@ def _dangling_conjunction_findings(text, filename):
                          and SETEXT_UNDERLINE.match(content))
             text_line = (bool(content.strip(" \t")) and not NO_PARAGRAPH.match(content)
                          and not underline)
+            # A list marker with a tab after it starts an item on GitHub. The pass reads no
+            # item there, as before, but an HTML block after the marker line can be in that
+            # item, so its content indent goes on the stack, and the text of the line is a
+            # paragraph in the item. As a paragraph line, it starts an item only where a
+            # list item can interrupt the paragraph.
+            tab_item = (None if depth or underline or NO_PARAGRAPH.match(content)
+                        else LIST_ITEM_START.match(line.expandtabs(4)))
+            if (tab_item and in_paragraph and paragraph_indent is not None
+                    and _indent_width(line) >= paragraph_indent):
+                tab_marker = tab_item.group("marker")
+                if ((tab_marker[:-1].isdigit() and tab_marker[:-1].lstrip("0") != "1")
+                        or not tab_item.group("body").strip(" \t")):
+                    tab_item = None
             if line.strip(" \t") and not (in_paragraph and text_line and not depth):
                 close_items(_indent_width(line))
                 paragraph_indent = None if depth else (open_items[-1] if open_items else 0)
+            if tab_item:
+                close_items(len(tab_item.group("indent")))
+                # An empty item, or indented code after five or more columns, holds no
+                # paragraph, and the content starts one column after the marker.
+                no_paragraph = (len(tab_item.group("gap")) > 4
+                                or not tab_item.group("body").strip(" \t"))
+                paragraph_indent = (tab_item.end("marker") + 1 if no_paragraph
+                                    else tab_item.start("body"))
+                open_items.append(paragraph_indent)
+                text_line = text_line and not no_paragraph
+                # An HTML block or a fence can start on the line of the marker, in the item.
+                if not no_paragraph and html_block is None:
+                    tab_body = tab_item.group("body")
+                    tab_fence = _fence_step(None, " " * paragraph_indent + tab_body)[1]
+                    tab_html, html_block = _html_block_step(None, tab_body, False)
+                    if tab_fence is not None:
+                        fence, fence_container = tab_fence, paragraph_indent
+                        marker_fences = True
+                        html_block, text_line = None, False
+                    elif tab_html:
+                        html_container = paragraph_indent
+                        html_shows = _block_shows_text(html_block, tab_body)
+                        text_line = False
             in_paragraph = text_line
             index += 1
             continue
@@ -946,21 +996,42 @@ def _dangling_conjunction_findings(text, filename):
         content_indent = len(start.group("indent")) + len(start.group("marker")) + gap
         # A list marker in an open HTML block around the item is text of the block on
         # GitHub, so the item is not open for later lines (see the item loop below).
+        # After five or more columns, or in an empty item, the content of the item starts
+        # one column after the marker (CommonMark 5.2), so an HTML block there is in it.
+        # A tab in the gap goes to the next tab stop. Indented code is no paragraph.
+        expanded = LIST_ITEM_START.match(line.expandtabs(4))
+        code_body = len(expanded.group("gap")) > 4
         if not outer_paragraph and html_block is None:
-            open_items.append(content_indent)
+            item_indent = expanded.start("body")
+            if code_body or not body.strip(" \t"):
+                item_indent = expanded.end("marker") + 1
+            open_items.append(item_indent)
         # An HTML block can start on the line of the marker. It is in the item, and it
         # ends when the item ends. After five or more spaces the text is indented code.
         body_html, item_html, item_shows = False, None, False
+        # A fence can open on the line of the marker too. It is in the item, and it ends
+        # with the item at the latest.
+        body_fence = None
         # In an open HTML block around the item, the body is text of that block.
         if html_block is None and not outer_paragraph and len(start.group("gap")) <= 4:
-            body_html, item_html = _html_block_step(None, body, False)
-            item_shows = _block_shows_text(item_html, body)
+            body_fence = _fence_step(None, " " * content_indent + body)[1]
+            marker_fences = marker_fences or body_fence is not None
+            if body_fence is None:
+                body_html, item_html = _html_block_step(None, body, False)
+                item_shows = _block_shows_text(item_html, body)
         item_paragraph = outer_paragraph or (bool(body.strip(" \t")) and not body_html
+                                             and body_fence is None and not code_body
                                              and not NO_PARAGRAPH.match(body))
-        # A block of code or hidden text that stays open shows no item text (see below).
-        item_lines = [] if item_html and not item_shows else [(index, body)]
+        # A block of code or hidden text that stays open shows no item text (see below),
+        # and the line that opens a fence is no item text.
+        item_lines = [] if (item_html and not item_shows) or body_fence else [(index, body)]
         next_index = index + 1
-        item_fence = None
+        # The fence of the item, and the content indent of the item (or of the nested
+        # item, see below) when the fence opened on the line of its marker (else 0).
+        item_fence, fence_indent = body_fence, content_indent if body_fence else 0
+        # The content indent of the nested item that holds the open HTML block of the
+        # item (a list marker with a tab after it, see below), or None.
+        nested_indent = None
         while next_index < len(lines):
             candidate = lines[next_index]
             # An open HTML block around this item (a list marker in it started the item,
@@ -986,6 +1057,17 @@ def _dangling_conjunction_findings(text, filename):
             if _fence_ends_with_quote(item_fence, candidate):
                 # The quote of the fence ended: judge this line as any other line.
                 item_fence = None
+            # A line with less indent than the nested item (see below) ends that item, and
+            # the HTML block in it. GitHub still hides an open comment up to "-->".
+            if (nested_indent is not None and candidate.strip(" \t")
+                    and _indent_width(candidate) < nested_indent):
+                nested_indent = None
+                if item_html is not HTML_COMMENT_END:
+                    item_html = None
+            # A fence from the line of a marker ends with its item at the latest.
+            if (item_fence is not None and fence_indent and candidate.strip(" \t")
+                    and _indent_width(candidate) < fence_indent):
+                item_fence, fence_indent = None, 0
             if item_html is HTML_COMMENT_END:
                 # GitHub hides the text from "<!--" up to "-->", also over the end of the
                 # item and over the next items. The text after "-->" joins this item. No
@@ -1003,10 +1085,30 @@ def _dangling_conjunction_findings(text, filename):
                 if candidate.strip() and _indent_width(candidate) < content_indent:
                     item_html = None  # the line ends the item, and the HTML block in it
                 else:
-                    # The item holds its lines from the content indent on.
+                    # The item holds its lines from the content indent on, and the nested
+                    # item from its content indent on.
                     open_block = item_html
-                    rest = candidate.expandtabs(4)[content_indent:]
-                    in_html, item_html = _html_block_step(open_block, rest, item_paragraph)
+                    rest = candidate.expandtabs(4)[nested_indent or content_indent:]
+                    line_paragraph = item_paragraph
+                    # A list marker with a tab after it starts no item for the pass, as
+                    # before: its line is a line of this item. On GitHub it starts a nested
+                    # item, and an HTML block can start on its line, in that item (as in the
+                    # text branch above). A number other than 1 cannot interrupt the paragraph.
+                    nested = (None if open_block is not None or LIST_ITEM_START.match(candidate)
+                              else LIST_ITEM_START.match(candidate.expandtabs(4)))
+                    if (nested and len(nested.group("gap")) <= 4
+                            and nested.group("body").strip(" \t")):
+                        nested_marker = nested.group("marker")
+                        if not (item_paragraph and nested_marker[:-1].isdigit()
+                                and nested_marker[:-1].lstrip("0") != "1"):
+                            nested_indent = nested.start("body")
+                            nested_body = nested.group("body")
+                            item_fence = _fence_step(None, " " * nested_indent + nested_body)[1]
+                            if item_fence is not None:
+                                fence_indent, marker_fences = nested_indent, True
+                            elif _html_block_step(None, nested_body, False)[0]:
+                                rest, line_paragraph = nested_body, False
+                    in_html, item_html = _html_block_step(open_block, rest, line_paragraph)
                     if in_html and open_block is None:
                         item_shows = _block_shows_text(item_html, rest)
                     # A <pre> block holds code, and GitHub hides a comment and a "<?", "<!X"
@@ -1028,13 +1130,19 @@ def _dangling_conjunction_findings(text, filename):
             # In an HTML block, a fence line is text.
             if not in_html:
                 is_fence, item_fence = _fence_step(item_fence, candidate)
+                if item_fence is None:
+                    fence_indent = 0
+                elif is_fence and marker_fences and not outer_paragraph:
+                    # After a fence on a marker line, a fence ends with its item (see above).
+                    fence_indent = nested_indent if nested_indent is not None else content_indent
                 if is_fence or item_fence:
                     item_paragraph = False
                     next_index += 1
                     continue
             item_lines.append((next_index, candidate))
             item_paragraph = (not in_html and bool(candidate.strip(" \t"))
-                              and not NO_PARAGRAPH.match(candidate.expandtabs(4)[content_indent:]))
+                              and not NO_PARAGRAPH.match(
+                                  candidate.expandtabs(4)[nested_indent or content_indent:]))
             next_index += 1
         # A list marker in a block of the item whose text GitHub shows ends the item, as
         # before, but on GitHub the block goes on. Hand it on, so that the lines after the
@@ -1670,7 +1778,37 @@ def selftest():
                         # a list marker on the line that ends the block is text of the block
                         ("- <textarea>\n  ~~~\n  - Note </textarea>\n\n    <div>\n  ~~~\n    </div>\n\n"
                          "- Run tests and\n", [9]),
-                        ("- <pre>\n  ~~~\n  - Note </pre>\n\n    <div>\n  ~~~\n    </div>\n\n- Run tests and\n", [9])):
+                        ("- <pre>\n  ~~~\n  - Note </pre>\n\n    <div>\n  ~~~\n    </div>\n\n- Run tests and\n", [9]),
+                        # after five or more spaces, or in an empty item, the content of the item
+                        # starts one column after the marker, so the HTML block is in the item
+                        ("1.      code\n   <div>Note</div>\n2. Open the valve and\n", [3]),
+                        ("-   \n  <div>Note</div>\n- Open the valve and\n", [3]),
+                        ("-   \tcode\n  <div>Note</div>\n- Run tests and\n", [3]),
+                        # a tab after the marker starts an item that can hold an HTML block
+                        ("-\t\tcode\n  <div>Note</div>\n- Run tests and\n", [3]),
+                        ("-\t\n-\t\n  <div>\n- Run tests and\n", [4]),
+                        # indented code after the marker is no paragraph
+                        ("  - \tcode\n  -->\n  <br>\n- Run tests and\n", [4]),
+                        # an HTML block on the line of a marker with a tab is in that item
+                        ("-\t<!--\n    <div>Example</div>\n    ~~~text\n\n    ~~~\n    -->\n- Run tests and\n", [7]),
+                        ("- Parent\n  -\t<!--\n    <div>Example</div>\n    ~~~text\n\n    ~~~\n    -->\n- Run tests and\n", [8]),
+                        ("- Parent\n  -\t<pre>\n    <div>Example</div>\n    ~~~text\n\n    ~~~\n    </pre>\n- Run tests and\n", [8]),
+                        ("- Parent\n  -\t<!--\n    note\n    -->\n  Finish and\n", [5]),
+                        ("- Parent\n  -\t<!--\n    ~~~\n    -->\n      <div>\n      ~~~\n      </div>\n- Run tests and\n", [8]),
+                        ("- Parent\n  -\t<pre>\n    </pre>\n      <div>\n      ~~~\n      </div>\n- Run tests and\n", [7]),
+                        ("- Parent\n  -\tExample\n    <!--\n    ~~~\n    -->\n      <div>\n      ~~~\n      </div>\n- Run tests and\n", [9]),
+                        # a fence on a marker line holds code up to its end or the end of the item
+                        ("- ~~~\n  <!--\n- Run tests and\n", [3]),
+                        ("- ```html\n  <pre>\n  ```\n- Run tests and\n", [4]),
+                        ("- Parent\n  -\t~~~\n    <!--\n- Run tests and\n", [4]),
+                        ("- Parent\n  Text\n  -\t~~~\n      <!--\n- Run tests and\n", [5]),
+                        # the line that opens such a fence is no item text, the item can close
+                        # it, and after it a fence in a list item ends with its item
+                        ("- ~~~ and\n  </div>\nText and\n", []),
+                        ("- ~~~\n  ~~~\n  - Note and\n", [3]),
+                        ("- ```\n  code\n  ```\n\n  ```\n  more\n\n- Run tests and\n", [8]),
+                        ("-\t~~~\n    code\n    ~~~\n    ~~~\n    more\n- Run tests and\n", [6]),
+                        ("- Parent\n  -\t~~~\n      code\n      ~~~\n  ~~~\n  more\n- Run tests and\n", [7])):
         findings, _ = lint(text)
         assert [f["line"] for f in findings if f["rule"] == "dangling-conjunction"] == lines, (text, findings)
     # a quoted fence ends with its quote, and a deeper ">" in a fence is code
