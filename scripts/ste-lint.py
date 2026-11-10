@@ -765,6 +765,16 @@ def _block_shows_text(block, line):
     return block is False or bool(SHOWN_TYPE1.match(line))
 
 
+def _tab_item(line):
+    """Match LINE as a list marker that the pass reads as no item, or return None.
+
+    The marker has a tab after it, or nothing after it (an empty item). Tabs become
+    spaces, so the match has the columns of GitHub.
+    """
+    expanded = line.expandtabs(4)
+    return LIST_ITEM_START.match(expanded) or LIST_ITEM_START.match(expanded + " ")
+
+
 def _is_list_continuation(line, content_indent):
     if not line.strip():
         return True
@@ -1062,6 +1072,14 @@ def _dangling_conjunction_findings(text, filename):
         # The content indent of the nested item that holds the open HTML block of the
         # item (a list marker with a tab after it, see below), or None.
         nested_indent = None
+        # The content column of a nested empty item, or of a nested item with indented
+        # code after its marker (see below), for a fence in it, or None.
+        nested_fence = None
+        # A nested list that GitHub starts in this item (see below) is the last block of
+        # the item: the item holds no paragraph of its own, so an empty item or any number
+        # can start a nested item there. nested_code: the nested item holds no paragraph
+        # (it is empty, or it holds indented code), so no lazy line continues it.
+        nested_list = nested_code = False
         while next_index < len(lines):
             candidate = lines[next_index]
             # An open HTML block around this item (a list marker in it started the item,
@@ -1087,6 +1105,24 @@ def _dangling_conjunction_findings(text, filename):
             if _fence_ends_with_quote(item_fence, candidate):
                 # The quote of the fence ended: judge this line as any other line.
                 item_fence = None
+            if nested_list and candidate.strip(" \t"):
+                column = nested_indent if nested_indent is not None else nested_fence
+                if column is not None and _indent_width(candidate) >= column:
+                    # A line of the nested item: indented code goes on, text is a paragraph.
+                    if nested_fence is not None and nested_code:
+                        nested_code = _indent_width(candidate) >= nested_fence + 4
+                elif not _tab_item(candidate):
+                    # A line outside the nested item ends the nested list, unless it goes
+                    # on with the paragraph of the nested item (a lazy line) or starts the
+                    # next nested item. The line is in this item, not in a paragraph, so
+                    # any block starts there, also an HTML block of type 7.
+                    text = (" " * max(0, _indent_width(candidate) - content_indent)
+                            + candidate.lstrip(" \t"))
+                    nested_list = (item_paragraph and not nested_code
+                                   and not NO_PARAGRAPH.match(text)
+                                   and not text.lstrip(" ").startswith(">")
+                                   and not _fence_step(None, text)[0]
+                                   and not _html_block_step(None, text, False)[0])
             # A line with less indent than the nested item (see below) ends that item, and
             # the HTML block in it. GitHub still hides an open comment up to "-->".
             if (nested_indent is not None and candidate.strip(" \t")
@@ -1094,6 +1130,9 @@ def _dangling_conjunction_findings(text, filename):
                 nested_indent = None
                 if item_html is not HTML_COMMENT_END:
                     item_html = None
+            if (nested_fence is not None and candidate.strip(" \t")
+                    and _indent_width(candidate) < nested_fence):
+                nested_fence = None
             # A fence from the line of a marker ends with its item at the latest.
             if (item_fence is not None and fence_indent and candidate.strip(" \t")
                     and _indent_width(candidate) < fence_indent):
@@ -1124,13 +1163,31 @@ def _dangling_conjunction_findings(text, filename):
                     # before: its line is a line of this item. On GitHub it starts a nested
                     # item, and an HTML block can start on its line, in that item (as in the
                     # text branch above). A number other than 1 cannot interrupt the paragraph.
+                    # An empty item (also with nothing after the marker), and an item with
+                    # indented code after five or more columns, hold their lines from one
+                    # column after the marker on GitHub. The pass keeps that column only for
+                    # a fence in the item (see the fence step below). An empty item cannot
+                    # interrupt the paragraph either (an empty "-" is a setext underline), and
+                    # it ends at a blank line after its marker. After a nested item, the
+                    # paragraph is that of the nested item (see nested_list above).
                     nested = (None if open_block is not None or LIST_ITEM_START.match(candidate)
-                              else LIST_ITEM_START.match(candidate.expandtabs(4)))
-                    if (nested and len(nested.group("gap")) <= 4
+                              else _tab_item(candidate))
+                    empty = nested is not None and not nested.group("body").strip(" \t")
+                    own_paragraph = item_paragraph and not nested_list
+                    if (nested and (empty or len(nested.group("gap")) > 4)
+                            and not (own_paragraph and (empty or (
+                                nested.group("marker")[:-1].isdigit()
+                                and nested.group("marker")[:-1].lstrip("0") != "1")))
+                            and not (empty and not (next_index + 1 < len(lines)
+                                                    and lines[next_index + 1].strip(" \t")))):
+                        nested_fence = nested.end("marker") + 1
+                        nested_list = nested_code = True
+                    elif (nested and len(nested.group("gap")) <= 4
                             and nested.group("body").strip(" \t")):
                         nested_marker = nested.group("marker")
-                        if not (item_paragraph and nested_marker[:-1].isdigit()
+                        if not (own_paragraph and nested_marker[:-1].isdigit()
                                 and nested_marker[:-1].lstrip("0") != "1"):
+                            nested_list, nested_code = True, False
                             nested_indent = nested.start("body")
                             nested_body = nested.group("body")
                             item_fence = _fence_step(None, " " * nested_indent + nested_body)[1]
@@ -1170,10 +1227,13 @@ def _dangling_conjunction_findings(text, filename):
                     # in the gap at the next tab stop. A fence line from that column on, with
                     # less than four columns more indent, is a fence of the item there. A fence
                     # line with less indent ends the item, and the fence opens after it.
-                    if nested_indent is None and fence_column is not None:
-                        if fence_column <= _indent_width(candidate) < fence_column + 4:
-                            fence_indent = fence_column
-                        elif _indent_width(candidate) < fence_column:
+                    # In such a nested item, empty or with indented code, the column is that
+                    # of the nested item (see above).
+                    item_column = fence_column if nested_fence is None else nested_fence
+                    if nested_indent is None and item_column is not None:
+                        if item_column <= _indent_width(candidate) < item_column + 4:
+                            fence_indent = item_column
+                        elif _indent_width(candidate) < item_column:
                             item_fence, fence_indent = None, 0
                             break
                 if is_fence or item_fence:
@@ -1879,7 +1939,27 @@ def selftest():
                         ("- \t~~~\n    ~~~\n      <!--\n    ~~~\n      -->\n    ~~~\n"
                          "    command and\n    ~~~\n", []),
                         ("- <div>\n  ~~~\n  - Note</div>\n\n  <!--\n  ~~~\n  -->\n- Run tests and\n",
-                         [8])):
+                         [8]),
+                        # a nested empty item with a tab or with nothing after the marker,
+                        # and a nested item with indented code after a tab, hold a fence from
+                        # one column after the marker, so the fence ends with the item
+                        ("- ~~~\n  ~~~\n  -\t\n    ~~~\n  - Run tests and\n", [5]),
+                        ("- ~~~\n  ~~~\n  -\t\tcode\n    ~~~\n  - Run tests and\n", [5]),
+                        ("- ~~~\n  ~~~\n  1.\n     ~~~\n  - Run tests and\n", [5]),
+                        ("- ~~~\n  ~~~\n  -\n  -\n    ~~~\n  - Run tests and\n", [6]),
+                        # an empty item ends at a blank line, and it cannot interrupt a
+                        # paragraph: the fence is in the outer item
+                        ("- ~~~\n  ~~~\n  -\t\n\n    ~~~\n  - Run tests and\n", []),
+                        ("- ~~~\n  ~~~\n  text\n  *\n    ~~~\n  - Run tests and\n", []),
+                        # after a nested item, also after a lazy line of its paragraph, the
+                        # item holds no paragraph of its own, so an empty item starts there
+                        ("- ~~~\n  ~~~\n  -\tStep\n  -\n    ~~~\n  - Run tests and\n", [6]),
+                        ("- ~~~\n  ~~~\n  -\tStep\n  more\n  -\n    ~~~\n  - Run tests and\n", [7]),
+                        ("- ~~~\n  ~~~\n  -\t\tcode\n      more\n  -\n    ~~~\n  - Run tests and\n",
+                         [7]),
+                        # text after indented code is a paragraph of the outer item
+                        ("- ~~~\n  ~~~\n  -\t\tcode\n  text\n  -\n    ~~~\n  - Run tests and\n",
+                         [])):
         findings, _ = lint(text)
         assert [f["line"] for f in findings if f["rule"] == "dangling-conjunction"] == lines, (text, findings)
     # a quoted fence ends with its quote, and a deeper ">" in a fence is code
