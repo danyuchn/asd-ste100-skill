@@ -990,6 +990,10 @@ def _dangling_conjunction_findings(text, filename):
                            and ((marker[:-1].isdigit() and marker[:-1].lstrip("0") != "1")
                                 or (not body.strip(" \t") and marker != "-")))
         outer_indent = paragraph_indent
+        # An empty "-" item there is a setext underline on GitHub: no item.
+        underline = (in_paragraph and paragraph_indent is not None
+                     and _indent_width(line) >= paragraph_indent
+                     and marker == "-" and not body.strip(" \t"))
         close_items(len(start.group("indent")))
         # After five or more spaces the text is indented code, and the content column
         # is one space after the marker (CommonMark 5.2).
@@ -1008,11 +1012,15 @@ def _dangling_conjunction_findings(text, filename):
         # paragraph of a list item, it is item text.
         code_body = (len(expanded.group("gap")) > 4 and html_block is None
                      and not (outer_paragraph and outer_indent))
+        # After indented code, also with a tab in the gap, a line of the item can start an
+        # HTML block from one column after the marker (CommonMark 5.2), or None: from the
+        # content indent. A line with four or more columns more is indented code.
+        html_column = expanded.end("marker") + 1 if code_body else None
         # The content column of the item on GitHub, for a fence in the item (see the
         # fence step below), or None. An empty item ends at a blank line after its marker,
         # so it holds no later line.
         fence_column = None
-        if not outer_paragraph and html_block is None:
+        if not outer_paragraph and not underline and html_block is None:
             item_indent = expanded.start("body")
             if code_body or not body.strip(" \t"):
                 item_indent = expanded.end("marker") + 1
@@ -1110,7 +1118,7 @@ def _dangling_conjunction_findings(text, filename):
                     # The item holds its lines from the content indent on, and the nested
                     # item from its content indent on.
                     open_block = item_html
-                    rest = candidate.expandtabs(4)[nested_indent or content_indent:]
+                    rest = candidate.expandtabs(4)[nested_indent or html_column or content_indent:]
                     line_paragraph = item_paragraph
                     # A list marker with a tab after it starts no item for the pass, as
                     # before: its line is a line of this item. On GitHub it starts a nested
@@ -1858,7 +1866,20 @@ def selftest():
                         # in an HTML block, and in a paragraph of an item, the body of a
                         # marker after five or more columns is text
                         ("- <div>\n  -     Run tests and\n  </div>\n", [2]),
-                        ("- Text\n  2.     Step and\n", [2])):
+                        ("- Text\n  2.     Step and\n", [2]),
+                        # an empty "-" item after a paragraph is a setext underline
+                        ("Heading\n-   \n  <div>\n- Run tests and\n", []),
+                        ("Heading\n-  \t\n  <div>\n- Run tests and\n", []),
+                        # after indented code with a tab in the gap, a line with four or more
+                        # columns more than one column after the marker is code, not HTML
+                        ("-   \tcode\n      <custom>\n    ~~~\n  - Run tests and\n    ~~~\n", []),
+                        ("-   \tcode\n      <!--\n- Run tests and\n", [3]),
+                        # elsewhere the item starts an HTML block from its content indent,
+                        # also after a fence on the marker line and after a block ends
+                        ("- \t~~~\n    ~~~\n      <!--\n    ~~~\n      -->\n    ~~~\n"
+                         "    command and\n    ~~~\n", []),
+                        ("- <div>\n  ~~~\n  - Note</div>\n\n  <!--\n  ~~~\n  -->\n- Run tests and\n",
+                         [8])):
         findings, _ = lint(text)
         assert [f["line"] for f in findings if f["rule"] == "dangling-conjunction"] == lines, (text, findings)
     # a quoted fence ends with its quote, and a deeper ">" in a fence is code
