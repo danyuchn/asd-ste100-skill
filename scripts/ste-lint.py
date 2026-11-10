@@ -946,8 +946,10 @@ def _dangling_conjunction_findings(text, filename):
             # item there, as before, but an HTML block after the marker line can be in that
             # item, so its content indent goes on the stack, and the text of the line is a
             # paragraph in the item. As a paragraph line, it starts an item only where a
-            # list item can interrupt the paragraph.
+            # list item can interrupt the paragraph. After a fence on a marker line, a
+            # marker with nothing after it is such an item too (an empty item).
             tab_item = (None if depth or underline or NO_PARAGRAPH.match(content)
+                        else _tab_item(line) if marker_fences
                         else LIST_ITEM_START.match(line.expandtabs(4)))
             if (tab_item and in_paragraph and paragraph_indent is not None
                     and _indent_width(line) >= paragraph_indent):
@@ -1959,7 +1961,12 @@ def selftest():
                          [7]),
                         # text after indented code is a paragraph of the outer item
                         ("- ~~~\n  ~~~\n  -\t\tcode\n  text\n  -\n    ~~~\n  - Run tests and\n",
-                         [])):
+                         []),
+                        # an empty item with nothing after its marker holds the fence too
+                        ("- ~~~\n  ~~~\n-\n  ~~~\n- Run tests and\n", [5]),
+                        ("- ~~~\n  ~~~\n*\n  ~~~\n- Run tests and\n", [5]),
+                        # "<br>" after an item starts an HTML block outside the list
+                        ("-\tText\n<br>\n- Run tests and\n", [])):
         findings, _ = lint(text)
         assert [f["line"] for f in findings if f["rule"] == "dangling-conjunction"] == lines, (text, findings)
     # a quoted fence ends with its quote, and a deeper ">" in a fence is code
