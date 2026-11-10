@@ -956,7 +956,10 @@ def _dangling_conjunction_findings(text, filename):
                                 or not tab_item.group("body").strip(" \t"))
                 paragraph_indent = (tab_item.end("marker") + 1 if no_paragraph
                                     else tab_item.start("body"))
-                open_items.append(paragraph_indent)
+                # An empty item ends at a blank line after its marker (see below).
+                if (tab_item.group("body").strip(" \t")
+                        or (index + 1 < len(lines) and lines[index + 1].strip(" \t"))):
+                    open_items.append(paragraph_indent)
                 text_line = text_line and not no_paragraph
                 # An HTML block or a fence can start on the line of the marker, in the item.
                 if not no_paragraph and html_block is None:
@@ -1000,16 +1003,21 @@ def _dangling_conjunction_findings(text, filename):
         # one column after the marker (CommonMark 5.2), so an HTML block there is in it.
         # A tab in the gap goes to the next tab stop. Indented code is no paragraph.
         expanded = LIST_ITEM_START.match(line.expandtabs(4))
-        code_body = len(expanded.group("gap")) > 4
+        # After five or more columns the body is no item text: it is indented code, or
+        # text of a paragraph outside list items. In an open HTML block, and in a
+        # paragraph of a list item, it is item text.
+        code_body = (len(expanded.group("gap")) > 4 and html_block is None
+                     and not (outer_paragraph and outer_indent))
         # The content column of the item on GitHub, for a fence in the item (see the
-        # fence step below), or None. An empty item ends at a blank line after its marker.
+        # fence step below), or None. An empty item ends at a blank line after its marker,
+        # so it holds no later line.
         fence_column = None
         if not outer_paragraph and html_block is None:
             item_indent = expanded.start("body")
             if code_body or not body.strip(" \t"):
                 item_indent = expanded.end("marker") + 1
-            open_items.append(item_indent)
             if body.strip(" \t") or (index + 1 < len(lines) and lines[index + 1].strip(" \t")):
+                open_items.append(item_indent)
                 fence_column = item_indent
         # An HTML block can start on the line of the marker. It is in the item, and it
         # ends when the item ends. After five or more spaces the text is indented code.
@@ -1843,7 +1851,14 @@ def selftest():
                         # and a tab in the gap goes to the next tab stop, also for a later fence
                         ("- ```\n  ```\n\n-   \n    ~~~\n  - Run tests and\n  ~~~\n", []),
                         ("- ~~~\n  ~~~\n\n- \tStep\n    ~~~\n  - Run tests and\n", [6]),
-                        ("- ```\n  ```\n\n- \tcode\n   ~~~\n- Run tests and\n", [])):
+                        ("- ```\n  ```\n\n- \tcode\n   ~~~\n- Run tests and\n", []),
+                        # an empty item ends at a blank line after its marker, also after a tab
+                        ("-   \n\n  <div>\n- Run tests and\n", []),
+                        ("-\t\n\n  <div>\n- Run tests and\n", []),
+                        # in an HTML block, and in a paragraph of an item, the body of a
+                        # marker after five or more columns is text
+                        ("- <div>\n  -     Run tests and\n  </div>\n", [2]),
+                        ("- Text\n  2.     Step and\n", [2])):
         findings, _ = lint(text)
         assert [f["line"] for f in findings if f["rule"] == "dangling-conjunction"] == lines, (text, findings)
     # a quoted fence ends with its quote, and a deeper ">" in a fence is code
