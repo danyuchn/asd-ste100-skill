@@ -972,7 +972,8 @@ def _dangling_conjunction_findings(text, filename):
                 if (tab_item.group("body").strip(" \t")
                         or (index + 1 < len(lines) and lines[index + 1].strip(" \t"))):
                     open_items.append(paragraph_indent)
-                text_line = text_line and not no_paragraph
+                text_line = (text_line and not no_paragraph
+                             and not NO_PARAGRAPH.match(tab_item.group("body")))
                 # An HTML block or a fence can start on the line of the marker, in the item.
                 if not no_paragraph and html_block is None:
                     tab_body = tab_item.group("body")
@@ -1888,6 +1889,9 @@ def selftest():
                         ("-   \n  <div>Note</div>\n- Open the valve and\n", [3]),
                         ("-   \tcode\n  <div>Note</div>\n- Run tests and\n", [3]),
                         # a tab after the marker starts an item that can hold an HTML block
+                        ("-\t# Heading\n  Text\n    <!--\n- Run tests and\n", [4]),
+                        ("- # H\n  Text\n    <!--\n- Run tests and\n", []),
+                        ("- Intro\n  Text\n    <!--\n- Run tests and\n", []),
                         ("-\t\tcode\n  <div>Note</div>\n- Run tests and\n", [3]),
                         ("-\t\n-\t\n  <div>\n- Run tests and\n", [4]),
                         # indented code after the marker is no paragraph
