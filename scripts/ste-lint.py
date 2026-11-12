@@ -259,7 +259,9 @@ def _mask_code_spans(line, open_run, closes_later, lines=(), next_index=0, depth
     link from an earlier line ends in LINE. When a link goes on in a later
     line, CARRY gets [lines ahead, column after its ")"]. BRACKETS carries the
     open "[" marks from line to line of a paragraph. HIDDEN, when it is a list,
-    gets the (start, end) of each underscore fill. Return (masked line, open
+    gets the (start, end) of each underscore fill and of each autolink and
+    inline HTML item, all of it: GitHub reads no emphasis run in one, also
+    where it shows a part (a tag name, an attribute name). Return (masked line, open
     run).
     """
     masked = list(line)
@@ -322,11 +324,11 @@ def _mask_code_spans(line, open_run, closes_later, lines=(), next_index=0, depth
                 continue
             take_brackets(begin)
             done = end
+            if hidden is not None:
+                hidden.append((begin, end))
             # Keep the spaces, so the token count stays.
             for left, right in hide:
                 masked[left:right] = [c if c.isspace() else "_" for c in line[left:right]]
-                if hidden is not None:
-                    hidden.append((left, right))
 
     def mask_links(limit):
         # Fill the destinations after the "](" marks before LIMIT.
@@ -603,14 +605,28 @@ def _gfm_autolinks(source, masked, start, depth, hidden):
     These are the links that _mask_non_prose leaves: an email autolink
     (<user@example.com>), and a GFM extended autolink (www.example.com,
     https://example.com). GitHub reads a "*" or "_" in a link as text. MASKED
-    is SOURCE masked: a link starts only where the two agree, so not in code,
-    a link destination or hidden HTML. START is where the text of the line
+    is SOURCE masked: a link starts only where the two agree, and not in a
+    range that HIDDEN already holds, so not in code, a link destination, an
+    autolink or inline HTML (all of it, also the text of a processing
+    instruction after its first ">"). START is where the text of the line
     starts, after a quote or list marker. As on GitHub (cmark-gfm), no extended
     autolink starts after a "[" that no "]" closed yet. DEPTH is the number of
     such "[" marks before the line. Return the number after the line.
     """
+    items = []  # the ranges in HIDDEN, merged
+    for begin, end in sorted(hidden):
+        if items and begin <= items[-1][1]:
+            items[-1][1] = max(items[-1][1], end)
+        else:
+            items.append([begin, end])
+    item = 0
     pos = start
     while pos < len(source):
+        while item < len(items) and items[item][1] <= pos:
+            item += 1
+        if item < len(items) and items[item][0] <= pos:
+            pos = items[item][1]
+            continue
         char = masked[pos]
         if char != source[pos] or (char in "[]<" and _escaped(source, pos)):
             pos += 1
@@ -722,11 +738,11 @@ def _emphasis_view(source, masked, hidden):
     """Return SOURCE with each "*", "_" and "~" that the masking hid shown as "x".
 
     MASKED is SOURCE masked, at the same length. HIDDEN holds the (start, end)
-    of each underscore fill, where a "_" stays the same, and of each autolink
-    that _gfm_autolinks finds. The emphasis runs are read in this view, as
-    GitHub reads them: a code span next to "**" is a backtick there, and a "*"
-    or "_" in a code span, a link destination, an autolink or hidden HTML is
-    no run.
+    of each underscore fill, where a "_" stays the same, of each autolink and
+    inline HTML item, and of each autolink that _gfm_autolinks finds. The
+    emphasis runs are read in this view, as GitHub reads them: a code span next
+    to "**" is a backtick there, and a "*" or "_" in a code span, a link
+    destination, an autolink or inline HTML is no run.
     """
     view = ["x" if original in "*_~" and char != original else original
             for char, original in zip(masked, source)]
@@ -2818,6 +2834,8 @@ def selftest():
                  "*Lead.*", "__Lead.__", "_A `code` lead._", "**2*3 a*b.**", "\\***Lead.**",
                  "**Ready.**&nbsp;", "**Ready.**<!-- done -->", "_Read <https://example.com/a_> first._",
                  "_See [the docs](https://a.b/_x_) first._", "_A <span title=\"a_b\">x</span> lead._",
+                 "_Read <span data_>the guide</span> now._", "[See <?x > ] ?> https://example.com/*a now.*",
+                 "See <?a > www.example.com/?>*draft now.*",
                  "_Mail <ci_bot_@example.com>._", "*See https://web.archive.org/web/*/x.com first.*",
                  "[See https://example.com/*a] now.*", "[See the\nhttps://example.com/*a] now.*",
                  "See \"www.example.com/*draft\" now.*", "Open www.my_site.com/*draft now.*",
@@ -2851,6 +2869,8 @@ def selftest():
                  f"See <https://example.com/_notes> file._ then the {twenty} words go on.",
                  f"See [it](https://a.b/_x) file._ then the {twenty} words go on.",
                  f"See <span title=\"_a\">x</span> file._ then the {twenty} words go on.",
+                 f"See <span _data>x</span> file._ then the {twenty} words go on.",
+                 f"See <?a > _b ?> file._ then the {twenty} words go on.",
                  f"See <_build@example.com> file._ then the {twenty} words go on.",
                  f"See https://example.com/*.txt file.* then the {twenty} words go on.",
                  f"See www.example.com/_notes file._ then the {twenty} words go on.",
