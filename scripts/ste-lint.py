@@ -114,6 +114,15 @@ INLINE_TAG = re.compile(
 # declaration, a CDATA section. Each pair is (opener, closer).
 INLINE_HTML_OTHER = ((re.compile(r"<!--"), "-->"), (re.compile(r"<\?"), "?>"),
                      (re.compile(r"<![A-Za-z]"), ">"), (re.compile(r"<!\[CDATA\["), "]]>"))
+# The start of an open tag that goes on after the end of its line: GitHub lets
+# the white space between the parts of a tag hold a line break. A closing tag
+# holds no "*" or "_", so where it ends does not change the emphasis.
+WRAPPED_TAG = re.compile(
+    r"<[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*"
+    r"(?:[ \t]*=[ \t]*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*"
+    r"(?:[ \t]+(?:[A-Za-z_:][A-Za-z0-9_.:-]*[ \t]*(?:=[ \t]*(?:[^\s\"'=<>`]+|'[^']*|\"[^\"]*)?)?)?)?$"
+)
+HTML_ITEM_START = re.compile(r"<[A-Za-z!?]")
 # GitHub shows these tags as text (GFM 6.11, the tagfilter extension).
 FILTERED_TAGS = {"title", "textarea", "style", "xmp", "iframe", "noembed", "noframes", "script", "plaintext"}
 ATTRIBUTE_VALUE = re.compile(r"=[ \t]*(?:\"[^\"]*\"|'[^']*'|[^\s\"'=<>`]+)")
@@ -148,6 +157,8 @@ HTML_BLOCK_TAG = re.compile(
     r"optgroup|option|p|pre|script|search|section|style|summary|table|"
     r"tbody|td|textarea|tfoot|th|thead|title|tr|ul)(?=[\s/>])[^>]*>", re.I,
 )
+# The indent and the list markers before the text of a line, after its quote prefix.
+ITEM_PREFIX = re.compile(r"[ \t]*(?:(?:[-*+]|[0-9]{1,9}[.)])[ \t]+)*")
 # Any list marker at any depth starts a new prose block.
 ANY_LIST_ITEM = re.compile(r"^\s*(?:[-*+]|[0-9]+[.)])(?:\s|$)")
 # A letter or a digit: a token without one is punctuation, not a word.
@@ -406,6 +417,33 @@ def _inline_html_other(line):
             shown = end if closer in ("-->", ">") else line.index(">", m.start()) + 1
             found.append((m.start(), end, [(m.start(), shown)]))
     return found
+
+
+def _html_item_wraps(source, masked, hidden, start):
+    """True when an inline HTML item can start in SOURCE and end on a later line.
+
+    MASKED is SOURCE masked, at the same length. HIDDEN holds the (start, end)
+    of the items that end in SOURCE. An open tag can go on after the end of
+    the line, also a comment, a processing instruction, a declaration or a
+    CDATA section without its closer in SOURCE. A "<" in a code span, in a hidden
+    range, after a backslash or before START starts no item.
+    """
+    items = sorted(hidden)
+    item = 0
+    last = {closer: source.rfind(closer) for _, closer in INLINE_HTML_OTHER}
+    for m in HTML_ITEM_START.finditer(source, start):
+        pos = m.start()
+        while item < len(items) and items[item][1] <= pos:
+            item += 1
+        if (item < len(items) and items[item][0] <= pos) or masked[pos] != "<" or _escaped(source, pos):
+            continue
+        if WRAPPED_TAG.match(source, pos):
+            return True
+        for opener, closer in INLINE_HTML_OTHER:
+            other = opener.match(source, pos)
+            if other and last[closer] < other.end():
+                return True
+    return False
 
 
 def _escaped(line, pos):
@@ -843,7 +881,7 @@ def _emphasis_runs(text):
     return ends
 
 
-def _sentence_starts(text, view=None):
+def _sentence_starts(text, view=None, emphasis=None):
     """Return the offset of each sentence start in text.
 
     A sentence ends at a word that ends in terminal punctuation, after any
@@ -851,13 +889,16 @@ def _sentence_starts(text, view=None):
     VIEW is TEXT as _emphasis_view gives it, where the emphasis runs are read.
     A "*" or "_" after the stop ends the sentence only when emphasis uses it,
     as GitHub shows it. An underscore that the masking put there is no run.
-    One pass over the words keeps the cost linear in the text length.
+    EMPHASIS holds the end offsets of the runs that emphasis uses. When it is
+    None, the runs are read in VIEW. One pass over the words keeps the cost
+    linear in the text length.
     """
     words = list(re.finditer(r"\S+", text))
     if not words:
         return [0]
     view = text if view is None else view
-    emphasis = _emphasis_runs(view)
+    if emphasis is None:
+        emphasis = _emphasis_runs(view)
     starts = [words[0].start()]
     for word, next_word in zip(words, words[1:]):
         end = SENTENCE_END.search(word.group())
@@ -876,36 +917,81 @@ def _sentence_starts(text, view=None):
     return starts
 
 
-def _long_sentence_findings(pieces, filename):
+def _long_sentence_findings(pieces, filename, emphasis=None):
     """Flag long sentences in one prose block.
 
-    pieces is a list of (lineno, source_column, text, view) tuples. TEXT is the
+    pieces is a list of (lineno, source_column, text, view, ...) tuples. TEXT is the
     line with code spans and links masked. VIEW is the line as _emphasis_view
     gives it, at the same length. The texts are joined with spaces, so a
     sentence wrapped across source lines is counted once, and each finding
-    points at the line and column where it starts.
+    points at the line and column where it starts. EMPHASIS holds the end
+    offsets of the runs that emphasis uses in the joined views, or None.
     """
     offsets, position = [], 0
-    for _, _, text, _ in pieces:
+    for piece in pieces:
         offsets.append(position)
-        position += len(text) + 1
-    joined = " ".join(text for _, _, text, _ in pieces)
-    view = " ".join(view for _, _, _, view in pieces)
+        position += len(piece[2]) + 1
+    joined = " ".join(piece[2] for piece in pieces)
+    view = " ".join(piece[3] for piece in pieces)
     findings = []
-    starts = _sentence_starts(joined, view)
+    starts = _sentence_starts(joined, view, emphasis)
     for start, end in zip(starts, starts[1:] + [len(joined)]):
         n = _count_words(joined[start:end])
         if n <= MAX_WORDS:
             continue
         index = bisect.bisect_right(offsets, start) - 1
         offset = offsets[index]
-        lineno, source_column, _, _ = pieces[index]
+        lineno, source_column = pieces[index][:2]
         findings.append({"file": filename, "line": lineno,
                          "col": source_column + start - offset + 1,
                          "rule": "long-sentence", "level": "advisory-free",
                          "match": f"{n} words",
                          "message": f"Sentence has {n} words (cap {MAX_WORDS}). Split it."})
     return findings
+
+
+def _block_emphasis(blocks):
+    """Return, for each block in BLOCKS, the end offsets of the runs that emphasis uses.
+
+    A block is a list of (lineno, source_column, text, view, paragraph, wraps,
+    unsure) pieces, and the offsets are in its views joined with spaces.
+    GitHub reads the emphasis of a paragraph as a whole, and a paragraph can
+    hold more than one block: a lazy line after a quote line starts a new
+    block, for example. So the runs are read in the joined views of all pieces
+    of a PARAGRAPH. WRAPS is True when an inline HTML item can start in the
+    piece and end on a later line. The view does not show where that item
+    ends. UNSURE is True when GitHub can put the line in another paragraph
+    than the main loop does. So when a piece other than the last piece of a
+    paragraph wraps, or when a piece is unsure, each run of that paragraph
+    counts as used, as before this check.
+    """
+    flat = [piece for block in blocks for piece in block]
+    paragraphs = {}  # paragraph -> the indexes of its pieces in FLAT
+    for index, piece in enumerate(flat):
+        paragraphs.setdefault(piece[4], []).append(index)
+    used = [None] * len(flat)  # the run ends of each piece, in its view
+    for indexes in paragraphs.values():
+        view = " ".join(flat[index][3] for index in indexes)
+        if any(flat[index][5] for index in indexes[:-1]) or any(flat[index][6] for index in indexes):
+            ends = [run.end() for run in DELIMITER_RUN.finditer(view)]
+        else:
+            ends = sorted(_emphasis_runs(view))
+        offset = 0
+        for index in indexes:
+            size = len(flat[index][3])
+            low = bisect.bisect_right(ends, offset)
+            high = bisect.bisect_right(ends, offset + size)
+            used[index] = [end - offset for end in ends[low:high]]
+            offset += size + 1
+    result, index = [], 0
+    for block in blocks:
+        ends, offset = set(), 0
+        for piece in block:
+            ends.update(offset + end for end in used[index])
+            offset += len(piece[3]) + 1
+            index += 1
+        result.append(ends)
+    return result
 
 
 # One blockquote level: up to three spaces, ">", and one optional space.
@@ -1718,6 +1804,17 @@ def lint(text, filename="<stdin>"):
     seen_synonyms = {}
     # consecutive prose lines form one block, so wrapped sentences count once
     block = []
+    blocks = []  # the blocks, read after the last line
+    # the paragraph of the current line, where GitHub reads the emphasis runs
+    paragraph = 0
+    # A line of the open list item starts an HTML block, a heading, a
+    # thematic break or a block quote. GitHub ends the list at the next line
+    # with less indent, and the main loop can read that line as text of the
+    # item or as a line of the same quote. Or the main loop ends the list at an
+    # indented line that GitHub keeps in an item.
+    unsure_list = False
+    list_depth = 0  # the quote depth of the open list item
+    unquoted = ""  # the line before, after its quote prefix
     in_quote = False
     after_boundary = True
 
@@ -1725,11 +1822,12 @@ def lint(text, filename="<stdin>"):
     span_end, span_runs = -1, {}
 
     def flush():
-        findings.extend(_long_sentence_findings(block, filename))
+        if block:
+            blocks.append(block[:])
         block.clear()
 
     def check(lineno, segment, source_column, line, skip, is_table,
-              add_to_block=True, hidden=()):
+              add_to_block=True, hidden=(), wraps=False, unsure=False):
         nonlocal words_total
         words_total += len(line.split())
         for rule_id, level, pattern, msg in RULES:
@@ -1754,7 +1852,7 @@ def lint(text, filename="<stdin>"):
         # This flag affects sentence blocks only; rule checks still scan the line.
         if add_to_block and line[skip:].strip():
             block.append((lineno, source_column + skip, line[skip:],
-                          _emphasis_view(segment, line, hidden)[skip:]))
+                          _emphasis_view(segment, line, hidden)[skip:], paragraph, wraps, unsure))
 
     # The description in the front matter is one paragraph of prose.
     span = 0
@@ -1781,7 +1879,8 @@ def lint(text, filename="<stdin>"):
             piece_end = None
         line = _mask_non_prose(masked, hidden)
         piece_depth = _gfm_autolinks(value, line, 0, piece_depth, hidden)
-        check(index + 1, value, column, line, 0, False, hidden=hidden)
+        check(index + 1, value, column, line, 0, False, hidden=hidden,
+              wraps=_html_item_wraps(value, line, hidden, 0))
     flush()
     def closes_later(run):
         """True when a run of length RUN closes a span on a later line of this paragraph."""
@@ -1794,7 +1893,9 @@ def lint(text, filename="<stdin>"):
 
     for lineno, raw_line in enumerate(lines, 1):
         was_paragraph = in_paragraph
-        if not was_paragraph or _breaks_paragraph(paragraph_depth, raw_line, list_indent):
+        new_paragraph = not was_paragraph or _breaks_paragraph(paragraph_depth, raw_line, list_indent)
+        if new_paragraph:
+            paragraph += 1
             open_span = 0
             open_brackets = [[], 0]  # the "[" marks that can open link text
             link_depth = 0  # the "[" marks still open, for the GFM autolinks
@@ -1822,6 +1923,7 @@ def lint(text, filename="<stdin>"):
             is_fence = False
         else:
             is_fence, fence = _fence_step(fence, raw_line)
+        after_blank = not unquoted.strip()  # the line before is blank or a quote marker only
         # A paragraph is open after a line of text that no other block takes.
         # The paragraph state reads the line after its quote prefix, so a line with only
         # quote markers is blank inside its quote.
@@ -1851,6 +1953,12 @@ def lint(text, filename="<stdin>"):
         # CommonMark 4.4: an indented code block. It cannot interrupt a paragraph.
         rest = _strip_quotes(raw_line.expandtabs(4))[1]
         indent = _indent_width(rest)
+        # The indent at the quote depth of the list: it is before a deeper ">".
+        lead = _indent_width(_strip_quotes(raw_line.expandtabs(4), list_depth)[1])
+        if unsure_list and not list_indent and after_blank and rest.strip() and not lead:
+            unsure_list = False  # after a blank line, a line without indent is in no item
+        # The line that ends the list is unsure too, unless a blank line ends it.
+        unsure = unsure_list and not after_blank
         if rest.strip() and not in_html:
             if indent >= list_indent + 4:
                 if not was_paragraph:
@@ -1862,9 +1970,18 @@ def lint(text, filename="<stdin>"):
                 item = _list_item(rest, list_indent, was_paragraph and depth == prev_depth)
                 if item:
                     list_indent = len(item.group(0)) if item.group(3) else len(item.group(0)) + 1
+                    list_depth = depth
                 elif indent < list_indent and not (was_paragraph and in_paragraph):
                     # only a lazy text line keeps the item open, not a heading or a break
                     list_indent = 0
+                    # An indented line can be in an outer item, and a ">" with an indent
+                    # can start a block quote in the item: GitHub reads the list on.
+                    unsure_list = lead > 0
+        item_text = rest[ITEM_PREFIX.match(rest).end():]
+        if (list_indent and indent < list_indent + 4
+                and (depth > list_depth or item_text.startswith(">") or NO_PARAGRAPH.match(item_text)
+                     or HTML_TYPE7.match(item_text) or any(start.match(item_text) for start, _ in HTML_BLOCK_KINDS))):
+            unsure_list = True
         if HTML_BLOCK_TAG.match(raw_line.lstrip()):
             for tag in HTML_BLOCK_TAG.finditer(_mask_inline_code(raw_line)):
                 name = tag.group(2).lower()
@@ -1899,6 +2016,8 @@ def lint(text, filename="<stdin>"):
         in_quote = is_quote
         after_boundary = not raw_line.strip()
         for segment, source_column in segments:
+            if is_table:
+                paragraph += 1  # a table cell is a paragraph of its own
             hidden = []  # the underscore fills and the autolinks, for the emphasis view
             if in_html:
                 # an HTML block has no Markdown links; backtick pairs stay blanked
@@ -1934,12 +2053,18 @@ def lint(text, filename="<stdin>"):
             check(
                 lineno, segment, source_column, line, skip, is_table,
                 add_to_block=not admonition_title, hidden=hidden,
+                wraps=not (in_html or is_table) and _html_item_wraps(segment, line, hidden, skip),
+                unsure=unsure or unsure_list,
             )
             if is_table:
                 flush()  # each table cell is its own block
+        if is_table:
+            paragraph += 1  # a line after the table starts a paragraph
         if standalone:
             flush()
     flush()
+    for prose, emphasis in zip(blocks, _block_emphasis(blocks)):
+        findings.extend(_long_sentence_findings(prose, filename, emphasis))
     # synonym rotation: flag each member after the first, at its first occurrence
     for gi, group in enumerate(SYNONYM_GROUPS):
         present = [(seen_synonyms[(gi, b)], b) for b in group if (gi, b) in seen_synonyms]
@@ -2843,6 +2968,29 @@ def selftest():
                  "~~*Old `~~` rule.*", "See ~~~*old~~~ now.*"):
         findings, _ = lint(f"{lead} The {twenty} more words here now.")
         assert not any(f["rule"] == "long-sentence" for f in findings), (lead, findings)
+    # GitHub reads the emphasis of a paragraph as a whole: a lazy line after a
+    # quote line and a list marker that starts no item are in the paragraph,
+    # and a tag or a comment can go on in the next line; after a list item that
+    # holds an HTML block, a heading or a block quote, and after an indented line
+    # that the main loop reads as the end of the list (a line of an outer item,
+    # or a block quote with an indent), GitHub can read the lines in other
+    # paragraphs than the main loop does, so there each run counts as used
+    for lead in ("> *Read the\nguide here now.*", "*Read the\n2. guide here now.*",
+                 "_Read <span\ntitle=\"a_\">the guide</span> now._", "_Read <span class=\"x\" title=\n\"a_\">the guide</span> now._",
+                 "_Read the guide <!-- a\nb_ --> now._", "- <!-- note -->\n**Read the\n2. guide now.**",
+                 "- <img src=\"x\">\n**Read the\n2. guide now.**", "- a\n    # b\n**Read the\n2. guide now.**",
+                 "- a\n  <!DOCTYPE\nx> __Read the\nguide now.__", "- > *Read the\n  > guide here now.*",
+                 "- a\n  > *see\n> b*Read the guide now.*", "- a *see\n    > b*Read the guide now.*",
+                 "- a\n\n  > *see\n> b*Read the guide now.*", "> - a\n>\n>   > *see\n> > b*Read the guide now.*",
+                 "- a\n  - b\n\n  *see\n    # c*Read the guide now.*",
+                 "- a\n  - b\n\n  c\n\n  > *see\n> b*Read the guide now.*"):
+        findings, _ = lint(f"{lead} The {twenty} more words here now.")
+        assert not any(f["rule"] == "long-sentence" for f in findings), (lead, findings)
+    # the description in the front matter is one paragraph, also for a tag or a
+    # comment that goes on in the next line
+    for lead in ("_Read <span\n  title=\"a_\">the guide</span> now._", "_Read the guide <!-- a\n  b_ --> now._"):
+        findings, _ = lint(f"---\ndescription: |\n  {lead} The {twenty} more words here now.\n---\n")
+        assert not any(f["rule"] == "long-sentence" for f in findings), (lead, findings)
     # a run after the stop that opens emphasis ends the sentence too, and one that
     # closes it with a marker left over
     for text in (f"It ran.*) The {twenty} more words* here now.",
@@ -2884,6 +3032,30 @@ def selftest():
                  f"See →**(beta).** then the {twenty} words go on.",
                  f"Use ~~old~~**(new).** then the {twenty} words go on.",
                  f"__a._, b_, end._ then the {twenty} words go on."):
+        findings, _ = lint(text)
+        long_sentences = [f for f in findings if f["rule"] == "long-sentence"]
+        assert len(long_sentences) == 1, (text, long_sentences)
+    # a paragraph ends at a blank line, also in a quote and after a list item
+    # that holds an HTML block, and a table cell is a paragraph, also the last
+    # one before a line that GitHub reads as a row; a tag at the end of the
+    # paragraph, an escaped "<", a "<" in a code span, in an attribute value
+    # or in the shown text of a processing instruction go on in no line, and a
+    # tag in indented text is no HTML block; a list in a block quote, and a line
+    # without indent after a blank line, are read as usual
+    for text in (f"*See the\n\nlist now.* then the {twenty} words go on.",
+                 f"> - See the {twenty} file.* then words go on.",
+                 f"- a\n\n  > b\n\nSee the {twenty} file.* then words go on.",
+                 f"- a\n  - b\n\n  c\n\n> See the {twenty} file.* then words go on.",
+                 f"> *See the\n\nlist now.* then the {twenty} words go on.",
+                 f"- <!-- note -->\n\nSee file.* then the {twenty} words go on.",
+                 f"| a | b |\n| - | - |\n| *See the | list now.* then the {twenty} words go on. |",
+                 f"| a | b |\n| - | - |\n| x | *See the |\nlist now.* then the {twenty} words go on.",
+                 f"See the {twenty} file.* then words go on <span",
+                 f"See the {twenty} file.* then \\<span\nwords go on.",
+                 f"See the {twenty} file.* then `<!--`\nwords go on.",
+                 f"See the {twenty} file.* <b title=\"<!--\">x</b> then\nwords go on.",
+                 f"See the {twenty} file.* <?a > <!-- ?> then\nwords go on.",
+                 f"- See the {twenty} file.* then\n      <div> words go on."):
         findings, _ = lint(text)
         long_sentences = [f for f in findings if f["rule"] == "long-sentence"]
         assert len(long_sentences) == 1, (text, long_sentences)
