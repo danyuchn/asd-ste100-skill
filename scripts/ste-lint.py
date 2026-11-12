@@ -26,6 +26,7 @@ import os
 import re
 import sys
 import tempfile
+import unicodedata
 
 # ponytail: regex heuristics, not a parser. No noun-cluster rule — needs POS
 # tagging to avoid constant false positives; add spaCy-backed rule if ever needed.
@@ -98,6 +99,11 @@ BRACKET = re.compile(r"[\[\]]")
 # A list item or a fence that can interrupt a paragraph: a bullet or "1." with text.
 PARAGRAPH_INTERRUPT = re.compile(r" {0,3}(?:[-+*][ \t]+\S|1[.)][ \t]+\S|`{3,}|~{3,})")
 AUTOLINK = re.compile(r"<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*>")
+EMAIL_AUTOLINK = re.compile(r"<[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+                            r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*>")
+# A GFM extended autolink (www.example.com, https://example.com) ends before
+# white space or "<".
+GFM_LINK_STOP = re.compile(r"[ \t\r\n<]")
 # An inline HTML open or closing tag on one line (CommonMark 6.6).
 INLINE_TAG = re.compile(
     r"<(?:(?P<name>[A-Za-z][A-Za-z0-9-]*)(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*"
@@ -108,6 +114,15 @@ INLINE_TAG = re.compile(
 # declaration, a CDATA section. Each pair is (opener, closer).
 INLINE_HTML_OTHER = ((re.compile(r"<!--"), "-->"), (re.compile(r"<\?"), "?>"),
                      (re.compile(r"<![A-Za-z]"), ">"), (re.compile(r"<!\[CDATA\["), "]]>"))
+# The start of an open tag that goes on after the end of its line: GitHub lets
+# the white space between the parts of a tag hold a line break. A closing tag
+# holds no "*" or "_", so where it ends does not change the emphasis.
+WRAPPED_TAG = re.compile(
+    r"<[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*"
+    r"(?:[ \t]*=[ \t]*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*"
+    r"(?:[ \t]+(?:[A-Za-z_:][A-Za-z0-9_.:-]*[ \t]*(?:=[ \t]*(?:[^\s\"'=<>`]+|'[^']*|\"[^\"]*)?)?)?)?$"
+)
+HTML_ITEM_START = re.compile(r"<[A-Za-z!?]")
 # GitHub shows these tags as text (GFM 6.11, the tagfilter extension).
 FILTERED_TAGS = {"title", "textarea", "style", "xmp", "iframe", "noembed", "noframes", "script", "plaintext"}
 ATTRIBUTE_VALUE = re.compile(r"=[ \t]*(?:\"[^\"]*\"|'[^']*'|[^\s\"'=<>`]+)")
@@ -115,6 +130,9 @@ ATTRIBUTE_VALUE = re.compile(r"=[ \t]*(?:\"[^\"]*\"|'[^']*'|[^\s\"'=<>`]+)")
 # link destination. The limit keeps the scan of a long line linear.
 MAX_LINK_PARENS = 32
 ASCII_PUNCTUATION = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
+# The white space next to an emphasis run, as GitHub's parser (cmark-gfm) reads it.
+UNICODE_SPACE = frozenset("\t\n\f\r \xa0           "
+                          "   　")
 LIST_ITEM_START = re.compile(
     r"^(?P<indent> {0,3})(?P<marker>[-*+]|[0-9]+[.)])(?P<gap> +)(?P<body>.*)$"
 )
@@ -139,6 +157,8 @@ HTML_BLOCK_TAG = re.compile(
     r"optgroup|option|p|pre|script|search|section|style|summary|table|"
     r"tbody|td|textarea|tfoot|th|thead|title|tr|ul)(?=[\s/>])[^>]*>", re.I,
 )
+# The indent and the list markers before the text of a line, after its quote prefix.
+ITEM_PREFIX = re.compile(r"[ \t]*(?:(?:[-*+]|[0-9]{1,9}[.)])[ \t]+)*")
 # Any list marker at any depth starts a new prose block.
 ANY_LIST_ITEM = re.compile(r"^\s*(?:[-*+]|[0-9]+[.)])(?:\s|$)")
 # A letter or a digit: a token without one is punctuation, not a word.
@@ -146,6 +166,12 @@ WORD_CHAR = re.compile(r"[^\W_]")
 # A token that ends in terminal punctuation, optionally followed by closing
 # quotes, brackets, or Markdown emphasis markers ("**Lead.**").
 SENTENCE_END = re.compile(r"[.!?][\"'”’)\]*_]*$")
+# A run of emphasis markers (CommonMark 6.2). A "*" or "_" after the stop ends
+# a sentence only when emphasis uses it: "**Lead.**" does, "file.*" does not.
+DELIMITER_RUN = re.compile(r"\*+|_+")
+# The runs that _emphasis_runs reads: emphasis runs and the strikethrough runs
+# of GFM. GitHub's parser reads at most 100 "~" as one run.
+EMPHASIS_RUN = re.compile(r"\*+|_+|~{1,100}")
 OPENERS = "\"'“‘([*_"
 # Abbreviations whose period never ends a sentence.
 ABBREVIATIONS = {"vs.", "cf.", "approx.", "mr.", "mrs.", "ms.", "dr.", "fig.", "no."}
@@ -228,7 +254,7 @@ def _paragraph_runs(lines, start, depth, list_indent):
 
 
 def _mask_code_spans(line, open_run, closes_later, lines=(), next_index=0, depth=0, skip=0, carry=None,
-                     brackets=None):
+                     brackets=None, hidden=None):
     """Blank the code spans in LINE, also a span that wraps across lines.
 
     OPEN_RUN is the backtick run length of a span still open from an earlier
@@ -243,7 +269,10 @@ def _mask_code_spans(line, open_run, closes_later, lines=(), next_index=0, depth
     paragraph goes on after LINE, so a link must close in it. SKIP is where a
     link from an earlier line ends in LINE. When a link goes on in a later
     line, CARRY gets [lines ahead, column after its ")"]. BRACKETS carries the
-    open "[" marks from line to line of a paragraph. Return (masked line, open
+    open "[" marks from line to line of a paragraph. HIDDEN, when it is a list,
+    gets the (start, end) of each underscore fill and of each autolink and
+    inline HTML item, all of it: GitHub reads no emphasis run in one, also
+    where it shows a part (a tag name, an attribute name). Return (masked line, open
     run).
     """
     masked = list(line)
@@ -306,6 +335,8 @@ def _mask_code_spans(line, open_run, closes_later, lines=(), next_index=0, depth
                 continue
             take_brackets(begin)
             done = end
+            if hidden is not None:
+                hidden.append((begin, end))
             # Keep the spaces, so the token count stays.
             for left, right in hide:
                 masked[left:right] = [c if c.isspace() else "_" for c in line[left:right]]
@@ -330,6 +361,8 @@ def _mask_code_spans(line, open_run, closes_later, lines=(), next_index=0, depth
             if not image:
                 brackets[1] = len(stack)  # a link holds no link
             masked[pos:link[0]] = "_" * (link[0] - pos)
+            if hidden is not None:
+                hidden.append((pos, link[0]))
             _blank_title(masked, line, link[0], link[1])
             done = link[1]
             if carry is not None and link[2]:
@@ -384,6 +417,33 @@ def _inline_html_other(line):
             shown = end if closer in ("-->", ">") else line.index(">", m.start()) + 1
             found.append((m.start(), end, [(m.start(), shown)]))
     return found
+
+
+def _html_item_wraps(source, masked, hidden, start):
+    """True when an inline HTML item can start in SOURCE and end on a later line.
+
+    MASKED is SOURCE masked, at the same length. HIDDEN holds the (start, end)
+    of the items that end in SOURCE. An open tag can go on after the end of
+    the line, also a comment, a processing instruction, a declaration or a
+    CDATA section without its closer in SOURCE. A "<" in a code span, in a hidden
+    range, after a backslash or before START starts no item.
+    """
+    items = sorted(hidden)
+    item = 0
+    last = {closer: source.rfind(closer) for _, closer in INLINE_HTML_OTHER}
+    for m in HTML_ITEM_START.finditer(source, start):
+        pos = m.start()
+        while item < len(items) and items[item][1] <= pos:
+            item += 1
+        if (item < len(items) and items[item][0] <= pos) or masked[pos] != "<" or _escaped(source, pos):
+            continue
+        if WRAPPED_TAG.match(source, pos):
+            return True
+        for opener, closer in INLINE_HTML_OTHER:
+            other = opener.match(source, pos)
+            if other and last[closer] < other.end():
+                return True
+    return False
 
 
 def _escaped(line, pos):
@@ -545,12 +605,13 @@ def _link_destination_end(text, start, later_lines=(), depth=None):
     return end, len(text), (item[2], item[1] + pos + 1)
 
 
-def _mask_non_prose(text):
+def _mask_non_prose(text, hidden=None):
     """Fill character references and autolinks.
 
     The fill is underscores, not spaces, so a token stays one token and word
     counts do not change. An underscore is not a word character for _count_words.
-    Code spans and link destinations are blanked by _mask_code_spans.
+    Code spans and link destinations are blanked by _mask_code_spans. HIDDEN,
+    when it is a list, gets the (start, end) of each fill.
     """
     out = []
     pos = done = 0
@@ -569,25 +630,282 @@ def _mask_non_prose(text):
             continue
         out.append(text[done:pos])
         out.append("_" * (end - pos))
+        if hidden is not None:
+            hidden.append((pos, end))
         pos = done = end
     out.append(text[done:])
     return "".join(out)
 
 
-def _sentence_starts(text):
+def _gfm_autolinks(source, masked, start, depth, hidden):
+    """Add the (start, end) of each autolink in SOURCE[START:] to HIDDEN, for the emphasis view.
+
+    These are the links that _mask_non_prose leaves: an email autolink
+    (<user@example.com>), and a GFM extended autolink (www.example.com,
+    https://example.com). GitHub reads a "*" or "_" in a link as text. MASKED
+    is SOURCE masked: a link starts only where the two agree, and not in a
+    range that HIDDEN already holds, so not in code, a link destination, an
+    autolink or inline HTML (all of it, also the text of a processing
+    instruction after its first ">"). START is where the text of the line
+    starts, after a quote or list marker. As on GitHub (cmark-gfm), no extended
+    autolink starts after a "[" that no "]" closed yet. DEPTH is the number of
+    such "[" marks before the line. Return the number after the line.
+    """
+    items = []  # the ranges in HIDDEN, merged
+    for begin, end in sorted(hidden):
+        if items and begin <= items[-1][1]:
+            items[-1][1] = max(items[-1][1], end)
+        else:
+            items.append([begin, end])
+    item = 0
+    pos = start
+    while pos < len(source):
+        while item < len(items) and items[item][1] <= pos:
+            item += 1
+        if item < len(items) and items[item][0] <= pos:
+            pos = items[item][1]
+            continue
+        char = masked[pos]
+        if char != source[pos] or (char in "[]<" and _escaped(source, pos)):
+            pos += 1
+            continue
+        link = None
+        if char == "[":
+            depth += 1
+        elif char == "]":
+            depth = max(depth - 1, 0)
+        elif char == "<":
+            email = EMAIL_AUTOLINK.match(source, pos)
+            link = email and email.span()
+        elif depth == 0 and char in "w:":
+            link = _gfm_extended_autolink(source, pos, start)
+        if link:
+            hidden.append(link)
+            pos = link[1]
+        else:
+            pos += 1
+    return depth
+
+
+def _gfm_extended_autolink(text, pos, start):
+    """Return (start, end) of the GFM extended autolink at the "w" or ":" at TEXT[POS], or None.
+
+    This follows www_match and url_match of GitHub's parser (cmark-gfm). A
+    "www." link starts after white space, "*", "_", "~" or "(", or at START. A
+    ":" ends the scheme http, https or ftp, which starts the link. The domain
+    must pass _gfm_domain. The link ends before white space or "<", without
+    its trailing punctuation (_gfm_link_end). An escaped ":" has a backslash
+    before it, so no scheme.
+    """
+    if text[pos] == "w":
+        if pos > start and text[pos - 1] not in "*_~( \t\r\n":
+            return None
+        if not text.startswith("www.", pos) or not _gfm_domain(text, pos):
+            return None
+        begin = pos
+    else:
+        begin = pos
+        while begin > start and text[begin - 1].isascii() and text[begin - 1].isalpha():
+            begin -= 1
+        if (text[begin:pos].lower() not in ("http", "https", "ftp") or not text.startswith("://", pos)
+                or pos + 3 >= len(text) or _flanking(text[pos + 3]) != "other"
+                or not _gfm_domain(text, pos + 3)):
+            return None
+    stop = GFM_LINK_STOP.search(text, pos)
+    end = _gfm_link_end(text, pos, stop.start() if stop else len(text))
+    return (begin, end) if end > pos else None
+
+
+def _gfm_domain(text, start):
+    """True when GitHub reads the domain at TEXT[START:] as the domain of a link (cmark-gfm check_domain).
+
+    The domain ends at the first character that is not a letter, a digit,
+    "-", "_", "." or one after a backslash. An underscore in one of its last
+    two parts makes it no domain, unless it has more than ten dots. (cmark-gfm
+    also wants a dot in the domain of a "www." link: the dot of "www." counts,
+    unless the paragraph ends there, and then the link holds no "*" or "_".)
+    cmark-gfm reads the domain byte by byte, so it ends after the first
+    character that is not ASCII.
+    """
+    dots = before_last = in_last = 0  # the dots, the underscores in the last two parts
+    pos = start + 1 if text[start].isascii() else len(text)
+    while pos < len(text):
+        char = text[pos]
+        if char == "\\" and pos + 1 < len(text):
+            pos += 1
+            char = text[pos]
+        if char == "_":
+            in_last += 1
+        elif char == ".":
+            before_last, in_last = in_last, 0
+            dots += 1
+        elif not char.isascii() or (char != "-" and _flanking(char) != "other"):
+            break
+        pos += 1
+    return not (before_last or in_last) or dots > 10
+
+
+def _gfm_link_end(text, start, end):
+    """Return END without the trailing punctuation that GitHub leaves out of a link (cmark-gfm autolink_delim).
+
+    TEXT[START:END] is the link from its "w" or ":". The punctuation is
+    ? ! . , : * _ ~ ' ", a character reference such as "&amp;", and a ")" that
+    has no "(" in the link.
+    """
+    opening, closing = text.count("(", start, end), text.count(")", start, end)
+    while end > start:
+        char = text[end - 1]
+        if char == ")":
+            if closing <= opening:
+                break
+            closing -= 1
+        elif char == ";":
+            ref = end - 2
+            while ref > start and text[ref].isascii() and text[ref].isalpha():
+                ref -= 1
+            if ref < end - 2 and text[ref] == "&":
+                end = ref
+                continue
+        elif char not in "?!.,:*_~'\"":
+            break
+        end -= 1
+    return end
+
+
+def _emphasis_view(source, masked, hidden):
+    """Return SOURCE with each "*", "_" and "~" that the masking hid shown as "x".
+
+    MASKED is SOURCE masked, at the same length. HIDDEN holds the (start, end)
+    of each underscore fill, where a "_" stays the same, of each autolink and
+    inline HTML item, and of each autolink that _gfm_autolinks finds. The
+    emphasis runs are read in this view, as GitHub reads them: a code span next
+    to "**" is a backtick there, and a "*" or "_" in a code span, a link
+    destination, an autolink or inline HTML is no run.
+    """
+    view = ["x" if original in "*_~" and char != original else original
+            for char, original in zip(masked, source)]
+    for start, end in hidden:
+        for index in range(start, end):
+            if view[index] in "*_~":
+                view[index] = "x"
+    return "".join(view)
+
+
+def _flanking(char):
+    """Classify CHAR next to a delimiter run: "space", "punct", or "other".
+
+    The classes are those of GitHub's parser (cmark-gfm): punctuation is ASCII
+    punctuation or a Unicode P* character, so a symbol such as "→" is "other".
+    """
+    if char in UNICODE_SPACE:
+        return "space"
+    if char in ASCII_PUNCTUATION or (char > "\x7f" and unicodedata.category(char)[0] == "P"):
+        return "punct"
+    return "other"
+
+
+def _emphasis_runs(text):
+    """Return the end offsets of the "*" and "_" runs in TEXT that emphasis uses.
+
+    TEXT is one prose block. This follows the delimiter run rules of
+    CommonMark 6.2 and its "process emphasis" procedure. A left-flanking run can
+    open, and a right-flanking run can close. An "_" run that is both opens only
+    after punctuation and closes only before punctuation, so an underscore
+    inside a word does neither. A run closes when an open run of the same
+    character comes before it anywhere in the block, also in an earlier
+    sentence. The rule of 3 applies: when one of the two runs can both open and
+    close, their lengths must not add up to a multiple of 3, unless both are
+    multiples of 3. The open runs between the two close with them, and their
+    markers stay text. Emphasis uses a run when it uses one or more of its
+    markers, to open or to close. A backslash makes the first marker of a run
+    text. As in GitHub's parser (cmark-gfm), the strikethrough runs ("~" and
+    "~~") are in the same stack: a closing one removes its opener and the runs
+    between. A "~" next to a "*" or "_" run is skipped when the run is
+    classified. BOTTOMS keeps the cost linear: after a search for an opener
+    fails, the next search for a closer of the same character and length
+    modulo 3 stops there.
+    """
+    ends = set()
+    stack = []  # [character, length left, length, can close, end offset] of each open run
+    bottoms = {}  # (character, length % 3) of a closer -> stack size below which no opener fits
+
+    def cut(size):
+        del stack[size:]
+        for key in bottoms:
+            bottoms[key] = min(bottoms[key], size)
+
+    for run in EMPHASIS_RUN.finditer(text):
+        start = run.start() + _escaped(text, run.start())  # a backslash makes the first marker text
+        if start == run.end():
+            continue
+        char, length = run.group()[0], run.end() - start
+        if char == "~" and length > 2:
+            continue  # a strikethrough run has one or two markers
+        left, right = start, run.end()
+        while char != "~" and left and text[left - 1] == "~":
+            left -= 1
+        while char != "~" and right < len(text) and text[right] == "~":
+            right += 1
+        before = _flanking(text[left - 1]) if left else "space"
+        after = _flanking(text[right]) if right < len(text) else "space"
+        can_open = after != "space" and (after != "punct" or before != "other")
+        can_close = before != "space" and (before != "punct" or after != "other")
+        if char == "_":
+            can_open, can_close = (can_open and (not can_close or before == "punct"),
+                                   can_close and (not can_open or after == "punct"))
+        full = length
+        while can_close and length:
+            key = (char, full % 3)
+            for index in range(len(stack) - 1, bottoms.get(key, 0) - 1, -1):
+                open_char, open_left, open_full, open_close, open_end = stack[index]
+                if open_char == char and not ((open_close or can_open) and (open_full + full) % 3 == 0
+                                              and (open_full % 3 or full % 3)):
+                    break
+            else:
+                bottoms[key] = len(stack)
+                break
+            if char == "~":
+                cut(index)  # the strikethrough closes, with both runs and all runs between
+                length = 0
+                break
+            ends.update((run.end(), open_end))
+            used = 2 if length >= 2 and open_left >= 2 else 1
+            length -= used
+            if open_left > used:
+                stack[index][1] -= used
+                cut(index + 1)
+            else:
+                cut(index)
+        if can_open and length:
+            stack.append([char, length, full, can_close, run.end()])
+    return ends
+
+
+def _sentence_starts(text, view=None, emphasis=None):
     """Return the offset of each sentence start in text.
 
     A sentence ends at a word that ends in terminal punctuation, after any
     closing quotes or brackets. Known abbreviations do not end a sentence.
-    One pass over the words keeps the cost linear in the text length.
+    VIEW is TEXT as _emphasis_view gives it, where the emphasis runs are read.
+    A "*" or "_" after the stop ends the sentence only when emphasis uses it,
+    as GitHub shows it. An underscore that the masking put there is no run.
+    EMPHASIS holds the end offsets of the runs that emphasis uses. When it is
+    None, the runs are read in VIEW. One pass over the words keeps the cost
+    linear in the text length.
     """
     words = list(re.finditer(r"\S+", text))
     if not words:
         return [0]
+    view = text if view is None else view
+    if emphasis is None:
+        emphasis = _emphasis_runs(view)
     starts = [words[0].start()]
     for word, next_word in zip(words, words[1:]):
         end = SENTENCE_END.search(word.group())
         if not end:
+            continue
+        if not all(run.end() in emphasis
+                   for run in DELIMITER_RUN.finditer(view, word.start() + end.start(), word.end())):
             continue
         core = word.group()[:end.start() + 1].lstrip(OPENERS)
         if core.lower() in ABBREVIATIONS:
@@ -599,33 +917,81 @@ def _sentence_starts(text):
     return starts
 
 
-def _long_sentence_findings(pieces, filename):
+def _long_sentence_findings(pieces, filename, emphasis=None):
     """Flag long sentences in one prose block.
 
-    pieces is a list of (lineno, source_column, text) tuples. The texts are
-    joined with spaces, so a sentence wrapped across source lines is counted
-    once, and each finding points at the line and column where it starts.
+    pieces is a list of (lineno, source_column, text, view, ...) tuples. TEXT is the
+    line with code spans and links masked. VIEW is the line as _emphasis_view
+    gives it, at the same length. The texts are joined with spaces, so a
+    sentence wrapped across source lines is counted once, and each finding
+    points at the line and column where it starts. EMPHASIS holds the end
+    offsets of the runs that emphasis uses in the joined views, or None.
     """
     offsets, position = [], 0
-    for _, _, text in pieces:
+    for piece in pieces:
         offsets.append(position)
-        position += len(text) + 1
-    joined = " ".join(text for _, _, text in pieces)
+        position += len(piece[2]) + 1
+    joined = " ".join(piece[2] for piece in pieces)
+    view = " ".join(piece[3] for piece in pieces)
     findings = []
-    starts = _sentence_starts(joined)
+    starts = _sentence_starts(joined, view, emphasis)
     for start, end in zip(starts, starts[1:] + [len(joined)]):
         n = _count_words(joined[start:end])
         if n <= MAX_WORDS:
             continue
         index = bisect.bisect_right(offsets, start) - 1
         offset = offsets[index]
-        lineno, source_column, _ = pieces[index]
+        lineno, source_column = pieces[index][:2]
         findings.append({"file": filename, "line": lineno,
                          "col": source_column + start - offset + 1,
                          "rule": "long-sentence", "level": "advisory-free",
                          "match": f"{n} words",
                          "message": f"Sentence has {n} words (cap {MAX_WORDS}). Split it."})
     return findings
+
+
+def _block_emphasis(blocks):
+    """Return, for each block in BLOCKS, the end offsets of the runs that emphasis uses.
+
+    A block is a list of (lineno, source_column, text, view, paragraph, wraps,
+    unsure) pieces, and the offsets are in its views joined with spaces.
+    GitHub reads the emphasis of a paragraph as a whole, and a paragraph can
+    hold more than one block: a lazy line after a quote line starts a new
+    block, for example. So the runs are read in the joined views of all pieces
+    of a PARAGRAPH. WRAPS is True when an inline HTML item can start in the
+    piece and end on a later line. The view does not show where that item
+    ends. UNSURE is True when GitHub can put the line in another paragraph
+    than the main loop does. So when a piece other than the last piece of a
+    paragraph wraps, or when a piece is unsure, each run of that paragraph
+    counts as used, as before this check.
+    """
+    flat = [piece for block in blocks for piece in block]
+    paragraphs = {}  # paragraph -> the indexes of its pieces in FLAT
+    for index, piece in enumerate(flat):
+        paragraphs.setdefault(piece[4], []).append(index)
+    used = [None] * len(flat)  # the run ends of each piece, in its view
+    for indexes in paragraphs.values():
+        view = " ".join(flat[index][3] for index in indexes)
+        if any(flat[index][5] for index in indexes[:-1]) or any(flat[index][6] for index in indexes):
+            ends = [run.end() for run in DELIMITER_RUN.finditer(view)]
+        else:
+            ends = sorted(_emphasis_runs(view))
+        offset = 0
+        for index in indexes:
+            size = len(flat[index][3])
+            low = bisect.bisect_right(ends, offset)
+            high = bisect.bisect_right(ends, offset + size)
+            used[index] = [end - offset for end in ends[low:high]]
+            offset += size + 1
+    result, index = [], 0
+    for block in blocks:
+        ends, offset = set(), 0
+        for piece in block:
+            ends.update(offset + end for end in used[index])
+            offset += len(piece[3]) + 1
+            index += 1
+        result.append(ends)
+    return result
 
 
 # One blockquote level: up to three spaces, ">", and one optional space.
@@ -1438,6 +1804,17 @@ def lint(text, filename="<stdin>"):
     seen_synonyms = {}
     # consecutive prose lines form one block, so wrapped sentences count once
     block = []
+    blocks = []  # the blocks, read after the last line
+    # the paragraph of the current line, where GitHub reads the emphasis runs
+    paragraph = 0
+    # A line of the open list item starts an HTML block, a heading, a
+    # thematic break or a block quote. GitHub ends the list at the next line
+    # with less indent, and the main loop can read that line as text of the
+    # item or as a line of the same quote. Or the main loop ends the list at an
+    # indented line that GitHub keeps in an item.
+    unsure_list = False
+    list_depth = 0  # the quote depth of the open list item
+    unquoted = ""  # the line before, after its quote prefix
     in_quote = False
     after_boundary = True
 
@@ -1445,11 +1822,12 @@ def lint(text, filename="<stdin>"):
     span_end, span_runs = -1, {}
 
     def flush():
-        findings.extend(_long_sentence_findings(block, filename))
+        if block:
+            blocks.append(block[:])
         block.clear()
 
     def check(lineno, segment, source_column, line, skip, is_table,
-              add_to_block=True):
+              add_to_block=True, hidden=(), wraps=False, unsure=False):
         nonlocal words_total
         words_total += len(line.split())
         for rule_id, level, pattern, msg in RULES:
@@ -1473,7 +1851,8 @@ def lint(text, filename="<stdin>"):
                     )
         # This flag affects sentence blocks only; rule checks still scan the line.
         if add_to_block and line[skip:].strip():
-            block.append((lineno, source_column + skip, line[skip:]))
+            block.append((lineno, source_column + skip, line[skip:],
+                          _emphasis_view(segment, line, hidden)[skip:], paragraph, wraps, unsure))
 
     # The description in the front matter is one paragraph of prose.
     span = 0
@@ -1484,20 +1863,24 @@ def lint(text, filename="<stdin>"):
             last_piece[len(m.group())] = piece_index
     piece_end = None  # (piece, column) where a link from an earlier piece ends
     piece_brackets = [[], 0]
+    piece_depth = 0  # the "[" marks still open, for the GFM autolinks
     for position, (index, column, value) in enumerate(description):
         skip = 0
         if piece_end and piece_end[0] > position:
             skip = len(value)  # the whole piece is in the title of a link
         elif piece_end and piece_end[0] == position:
             skip = piece_end[1]
-        carry = []
+        carry, hidden = [], []
         masked, span = _mask_code_spans(value, span, lambda run: last_piece.get(run, -1) > position, values, position + 1,
-                                        0, skip, carry, piece_brackets)
+                                        0, skip, carry, piece_brackets, hidden)
         if carry:
             piece_end = (position + carry[0], carry[1])
         elif piece_end and piece_end[0] <= position:
             piece_end = None
-        check(index + 1, value, column, _mask_non_prose(masked), 0, False)
+        line = _mask_non_prose(masked, hidden)
+        piece_depth = _gfm_autolinks(value, line, 0, piece_depth, hidden)
+        check(index + 1, value, column, line, 0, False, hidden=hidden,
+              wraps=_html_item_wraps(value, line, hidden, 0))
     flush()
     def closes_later(run):
         """True when a run of length RUN closes a span on a later line of this paragraph."""
@@ -1510,9 +1893,12 @@ def lint(text, filename="<stdin>"):
 
     for lineno, raw_line in enumerate(lines, 1):
         was_paragraph = in_paragraph
-        if not was_paragraph or _breaks_paragraph(paragraph_depth, raw_line, list_indent):
+        new_paragraph = not was_paragraph or _breaks_paragraph(paragraph_depth, raw_line, list_indent)
+        if new_paragraph:
+            paragraph += 1
             open_span = 0
             open_brackets = [[], 0]  # the "[" marks that can open link text
+            link_depth = 0  # the "[" marks still open, for the GFM autolinks
         if _fence_ends_with_quote(fence, raw_line):
             # The quote that holds the fence ended: judge this line as any other line.
             fence = None
@@ -1537,6 +1923,7 @@ def lint(text, filename="<stdin>"):
             is_fence = False
         else:
             is_fence, fence = _fence_step(fence, raw_line)
+        after_blank = not unquoted.strip()  # the line before is blank or a quote marker only
         # A paragraph is open after a line of text that no other block takes.
         # The paragraph state reads the line after its quote prefix, so a line with only
         # quote markers is blank inside its quote.
@@ -1566,6 +1953,12 @@ def lint(text, filename="<stdin>"):
         # CommonMark 4.4: an indented code block. It cannot interrupt a paragraph.
         rest = _strip_quotes(raw_line.expandtabs(4))[1]
         indent = _indent_width(rest)
+        # The indent at the quote depth of the list: it is before a deeper ">".
+        lead = _indent_width(_strip_quotes(raw_line.expandtabs(4), list_depth)[1])
+        if unsure_list and not list_indent and after_blank and rest.strip() and not lead:
+            unsure_list = False  # after a blank line, a line without indent is in no item
+        # The line that ends the list is unsure too, unless a blank line ends it.
+        unsure = unsure_list and not after_blank
         if rest.strip() and not in_html:
             if indent >= list_indent + 4:
                 if not was_paragraph:
@@ -1577,9 +1970,18 @@ def lint(text, filename="<stdin>"):
                 item = _list_item(rest, list_indent, was_paragraph and depth == prev_depth)
                 if item:
                     list_indent = len(item.group(0)) if item.group(3) else len(item.group(0)) + 1
+                    list_depth = depth
                 elif indent < list_indent and not (was_paragraph and in_paragraph):
                     # only a lazy text line keeps the item open, not a heading or a break
                     list_indent = 0
+                    # An indented line can be in an outer item, and a ">" with an indent
+                    # can start a block quote in the item: GitHub reads the list on.
+                    unsure_list = lead > 0
+        item_text = rest[ITEM_PREFIX.match(rest).end():]
+        if (list_indent and indent < list_indent + 4
+                and (depth > list_depth or item_text.startswith(">") or NO_PARAGRAPH.match(item_text)
+                     or HTML_TYPE7.match(item_text) or any(start.match(item_text) for start, _ in HTML_BLOCK_KINDS))):
+            unsure_list = True
         if HTML_BLOCK_TAG.match(raw_line.lstrip()):
             for tag in HTML_BLOCK_TAG.finditer(_mask_inline_code(raw_line)):
                 name = tag.group(2).lower()
@@ -1614,12 +2016,16 @@ def lint(text, filename="<stdin>"):
         in_quote = is_quote
         after_boundary = not raw_line.strip()
         for segment, source_column in segments:
+            if is_table:
+                paragraph += 1  # a table cell is a paragraph of its own
+            hidden = []  # the underscore fills and the autolinks, for the emphasis view
             if in_html:
                 # an HTML block has no Markdown links; backtick pairs stay blanked
-                line = _mask_non_prose(_mask_inline_code(segment))
+                line = _mask_non_prose(_mask_inline_code(segment), hidden)
             elif is_table:
                 # a table cell holds its own spans and links
-                line = _mask_non_prose(_mask_code_spans(segment, 0, lambda run: False)[0])
+                line = _mask_non_prose(_mask_code_spans(segment, 0, lambda run: False, hidden=hidden)[0],
+                                       hidden)
             else:
                 skip = 0
                 if link_end and link_end[0] > lineno:
@@ -1629,26 +2035,36 @@ def lint(text, filename="<stdin>"):
                 carry = []
                 masked, open_span = _mask_code_spans(segment, open_span, closes_later, lines, lineno,
                                                      paragraph_depth if in_paragraph else None,
-                                                     skip, carry, open_brackets)
+                                                     skip, carry, open_brackets, hidden)
                 if carry:
                     link_end = (lineno + carry[0], carry[1])
                 elif link_end and link_end[0] <= lineno:
                     link_end = None
-                line = _mask_non_prose(masked)
+                line = _mask_non_prose(masked, hidden)
             # The blockquote prefix and list marker are markup.
             skip = quote.end() if quote and not is_table else 0
             marker = None if is_table else ANY_LIST_ITEM.match(segment[skip:])
             if marker:
                 skip += marker.end()
+            if in_html or is_table:
+                _gfm_autolinks(segment, line, skip, 0, hidden)
+            else:
+                link_depth = _gfm_autolinks(segment, line, skip, link_depth, hidden)
             check(
                 lineno, segment, source_column, line, skip, is_table,
-                add_to_block=not admonition_title,
+                add_to_block=not admonition_title, hidden=hidden,
+                wraps=not (in_html or is_table) and _html_item_wraps(segment, line, hidden, skip),
+                unsure=unsure or unsure_list,
             )
             if is_table:
                 flush()  # each table cell is its own block
+        if is_table:
+            paragraph += 1  # a line after the table starts a paragraph
         if standalone:
             flush()
     flush()
+    for prose, emphasis in zip(blocks, _block_emphasis(blocks)):
+        findings.extend(_long_sentence_findings(prose, filename, emphasis))
     # synonym rotation: flag each member after the first, at its first occurrence
     for gi, group in enumerate(SYNONYM_GROUPS):
         present = [(seen_synonyms[(gi, b)], b) for b in group if (gi, b) in seen_synonyms]
@@ -2531,6 +2947,121 @@ def selftest():
     assert not any(f["rule"] == "long-sentence" for f in findings), findings
     findings, _ = lint(f"See **e.g.** the {twenty} linter here now.")
     assert any(f["rule"] == "long-sentence" for f in findings), findings
+    # the closing marker ends the sentence also when the run opens before a code
+    # span, in an earlier sentence, or after punctuation, when runs nest, when the
+    # rule of 3 skips a run in between, and after an escaped marker; an entity or a
+    # comment after it is no run, and a "*" or "_" in a link, an autolink or a tag
+    # opens nothing; GitHub starts no www or http link after an open "[", after a
+    # quote, or with "_" (also an escaped "_") in the last parts of the domain; a
+    # "~~" in code and a "~~~" close no strikethrough
+    for lead in ("**`make test` passes.**", "**Step 2. Run the tests.**", "**Smith, J. R. (2021).**",
+                 "~~**Old rule.**", "«**Rule.**", "Note:**Rule.**", "***Lead.***", "**Bold *lead.***",
+                 "*Lead.*", "__Lead.__", "_A `code` lead._", "**2*3 a*b.**", "\\***Lead.**",
+                 "**Ready.**&nbsp;", "**Ready.**<!-- done -->", "_Read <https://example.com/a_> first._",
+                 "_See [the docs](https://a.b/_x_) first._", "_A <span title=\"a_b\">x</span> lead._",
+                 "_Read <span data_>the guide</span> now._", "[See <?x > ] ?> https://example.com/*a now.*",
+                 "See <?a > www.example.com/?>*draft now.*",
+                 "_Mail <ci_bot_@example.com>._", "*See https://web.archive.org/web/*/x.com first.*",
+                 "[See https://example.com/*a] now.*", "[See the\nhttps://example.com/*a] now.*",
+                 "See \"www.example.com/*draft\" now.*", "Open www.my_site.com/*draft now.*",
+                 "Open www.my\\_site.com/*draft now.*",
+                 "~~*Old `~~` rule.*", "See ~~~*old~~~ now.*"):
+        findings, _ = lint(f"{lead} The {twenty} more words here now.")
+        assert not any(f["rule"] == "long-sentence" for f in findings), (lead, findings)
+    # GitHub reads the emphasis of a paragraph as a whole: a lazy line after a
+    # quote line and a list marker that starts no item are in the paragraph,
+    # and a tag or a comment can go on in the next line; after a list item that
+    # holds an HTML block, a heading or a block quote, and after an indented line
+    # that the main loop reads as the end of the list (a line of an outer item,
+    # or a block quote with an indent), GitHub can read the lines in other
+    # paragraphs than the main loop does, so there each run counts as used
+    for lead in ("> *Read the\nguide here now.*", "*Read the\n2. guide here now.*",
+                 "_Read <span\ntitle=\"a_\">the guide</span> now._", "_Read <span class=\"x\" title=\n\"a_\">the guide</span> now._",
+                 "_Read the guide <!-- a\nb_ --> now._", "- <!-- note -->\n**Read the\n2. guide now.**",
+                 "- <img src=\"x\">\n**Read the\n2. guide now.**", "- a\n    # b\n**Read the\n2. guide now.**",
+                 "- a\n  <!DOCTYPE\nx> __Read the\nguide now.__", "- > *Read the\n  > guide here now.*",
+                 "- a\n  > *see\n> b*Read the guide now.*", "- a *see\n    > b*Read the guide now.*",
+                 "- a\n\n  > *see\n> b*Read the guide now.*", "> - a\n>\n>   > *see\n> > b*Read the guide now.*",
+                 "- a\n  - b\n\n  *see\n    # c*Read the guide now.*",
+                 "- a\n  - b\n\n  c\n\n  > *see\n> b*Read the guide now.*"):
+        findings, _ = lint(f"{lead} The {twenty} more words here now.")
+        assert not any(f["rule"] == "long-sentence" for f in findings), (lead, findings)
+    # the description in the front matter is one paragraph, also for a tag or a
+    # comment that goes on in the next line
+    for lead in ("_Read <span\n  title=\"a_\">the guide</span> now._", "_Read the guide <!-- a\n  b_ --> now._"):
+        findings, _ = lint(f"---\ndescription: |\n  {lead} The {twenty} more words here now.\n---\n")
+        assert not any(f["rule"] == "long-sentence" for f in findings), (lead, findings)
+    # a run after the stop that opens emphasis ends the sentence too, and one that
+    # closes it with a marker left over
+    for text in (f"It ran.*) The {twenty} more words* here now.",
+                 f"*The {twenty} words end?** Then go on."):
+        findings, _ = lint(text)
+        assert not any(f["rule"] == "long-sentence" for f in findings), (text, findings)
+    # a "*" or "_" that emphasis does not use is no sentence end: a glob, a closed
+    # run, a word, a link, a run after a link or a strikethrough that closed its
+    # opener (a link leaves out a ")" with no "(", a character reference and the
+    # "_" before them; an escaped "[" does not stop a link; GitHub reads no
+    # domain after its first character that is not ASCII), a run
+    # that GitHub reads as no run (a "→" is no punctuation there, and a "~" next
+    # to a run is skipped), and a run after a closer that GitHub stops at an
+    # earlier failed closer
+    for text in (f"The {twenty} words match file.* against the list.",
+                 f"**Note:** the {twenty} words match file.* here.",
+                 f"*Note* the {twenty} words match file.* here.",
+                 f"\\*Note: the {twenty} words match file.* here.",
+                 f"Read **.md files and {twenty} end.*) then go.",
+                 f"«**`code` six.* and the {twenty} more words end.**",
+                 f"{twenty} name snake_case and end._ then go on and on.",
+                 f"{twenty} name __init__ and end.__ then go on and on.",
+                 f"The {twenty} words <https://example.com/a_b>._ then go on and on.",
+                 f"See <https://example.com/_notes> file._ then the {twenty} words go on.",
+                 f"See [it](https://a.b/_x) file._ then the {twenty} words go on.",
+                 f"See <span title=\"_a\">x</span> file._ then the {twenty} words go on.",
+                 f"See <span _data>x</span> file._ then the {twenty} words go on.",
+                 f"See <?a > _b ?> file._ then the {twenty} words go on.",
+                 f"See <_build@example.com> file._ then the {twenty} words go on.",
+                 f"See https://example.com/*.txt file.* then the {twenty} words go on.",
+                 f"See www.example.com/_notes file._ then the {twenty} words go on.",
+                 f"(See www.example.com/*a) file.* then the {twenty} words go on.",
+                 f"_Read https://example.com/a_ first._ then the {twenty} words go on.",
+                 f"~~*Old~~ rule.* then the {twenty} words go on.",
+                 f"_See (https://example.com/a_) now._ then the {twenty} words go on.",
+                 f"_See https://example.com/a_&amp; now._ then the {twenty} words go on.",
+                 f"\\[See https://example.com/*a file.* then the {twenty} words go on.",
+                 f"See https://éditions.my_site.fr/*a file.* then the {twenty} words go on.",
+                 f"See →**(beta).** then the {twenty} words go on.",
+                 f"Use ~~old~~**(new).** then the {twenty} words go on.",
+                 f"__a._, b_, end._ then the {twenty} words go on."):
+        findings, _ = lint(text)
+        long_sentences = [f for f in findings if f["rule"] == "long-sentence"]
+        assert len(long_sentences) == 1, (text, long_sentences)
+    # a paragraph ends at a blank line, also in a quote and after a list item
+    # that holds an HTML block, and a table cell is a paragraph, also the last
+    # one before a line that GitHub reads as a row; a tag at the end of the
+    # paragraph, an escaped "<", a "<" in a code span, in an attribute value
+    # or in the shown text of a processing instruction go on in no line, and a
+    # tag in indented text is no HTML block; a list in a block quote, and a line
+    # without indent after a blank line, are read as usual
+    for text in (f"*See the\n\nlist now.* then the {twenty} words go on.",
+                 f"> - See the {twenty} file.* then words go on.",
+                 f"- a\n\n  > b\n\nSee the {twenty} file.* then words go on.",
+                 f"- a\n  - b\n\n  c\n\n> See the {twenty} file.* then words go on.",
+                 f"> *See the\n\nlist now.* then the {twenty} words go on.",
+                 f"- <!-- note -->\n\nSee file.* then the {twenty} words go on.",
+                 f"| a | b |\n| - | - |\n| *See the | list now.* then the {twenty} words go on. |",
+                 f"| a | b |\n| - | - |\n| x | *See the |\nlist now.* then the {twenty} words go on.",
+                 f"See the {twenty} file.* then words go on <span",
+                 f"See the {twenty} file.* then \\<span\nwords go on.",
+                 f"See the {twenty} file.* then `<!--`\nwords go on.",
+                 f"See the {twenty} file.* <b title=\"<!--\">x</b> then\nwords go on.",
+                 f"See the {twenty} file.* <?a > <!-- ?> then\nwords go on.",
+                 f"- See the {twenty} file.* then\n      <div> words go on."):
+        findings, _ = lint(text)
+        long_sentences = [f for f in findings if f["rule"] == "long-sentence"]
+        assert len(long_sentences) == 1, (text, long_sentences)
+    # many open runs and many closers that find no opener stay linear
+    findings, _ = lint("*a " * 30000 + "c_ " * 30000 + "end.*")
+    assert [f["match"] for f in findings if f["rule"] == "long-sentence"] == ["60001 words"], findings
     # a dotted abbreviation ends a sentence before a capitalized word
     findings, _ = lint(f"The team shipped it in the U.S. Then {twenty} today.")
     assert not any(f["rule"] == "long-sentence" for f in findings), findings
