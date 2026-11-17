@@ -136,5 +136,5 @@ Follow the table with a one-line note on anything you deliberately did **not** s
 ## Additional Resources
 
 - **`references/writing-rules.md`** — fuller summary of the 9 rule sections and dictionary structure, with citations to the official standard and secondary sources.
-- **`examples/before-after.md`** — worked examples, including official STE examples and agent-output examples built for this skill.
+- **`examples/before-after.md`** — worked examples: rule illustrations, and agent-output examples built for this skill.
 - **`scripts/ste-lint.py`** — deterministic, stdlib-only linter for the structural rules, including dangling-conjunction in supported list items, plus a synonym-rotation check (one word, one meaning) scoped per file. Exit 1 when hard violations exceed `--baseline` (default 0); advisory findings (passive voice, compound tenses) never fail the run; `--disable` silences named rules. It never flags hedges or modality: those are content, not style, and `--selftest` asserts that "may have failed" passes clean.
