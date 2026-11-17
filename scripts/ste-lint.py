@@ -960,10 +960,10 @@ def _block_emphasis(blocks):
 
     A block is a list of (lineno, source_column, text, view, paragraph, wraps,
     unsure) pieces, and the offsets are in its views joined with spaces.
-    GitHub reads the emphasis of a paragraph as a whole, and a paragraph can
-    hold more than one block: a lazy line after a quote line starts a new
-    block, for example. So the runs are read in the joined views of all pieces
-    of a PARAGRAPH. WRAPS is True when an inline HTML item can start in the
+    GitHub reads the emphasis of a paragraph as a whole. A lazy continuation
+    line stays in that paragraph and in its block. A flush can still split a
+    paragraph, so the runs are read in the joined views of all pieces of a
+    PARAGRAPH. WRAPS is True when an inline HTML item can start in the
     piece and end on a later line. The view does not show where that item
     ends. UNSURE is True when GitHub can put the line in another paragraph
     than the main loop does. So when a piece other than the last piece of a
@@ -2039,7 +2039,10 @@ def lint(text, filename="<stdin>"):
         admonition_title = bool(ADMONITION_TITLE.match(content))
         standalone = STANDALONE_LINE.match(content) or admonition_title or alert
         if (is_table or not content.strip() or standalone
-                or ANY_LIST_ITEM.match(content) or is_quote != in_quote
+                or ANY_LIST_ITEM.match(content)
+                # A lazy continuation has no ">" and still belongs to the open
+                # paragraph. Do not split the sentence there.
+                or (is_quote != in_quote and new_paragraph)
                 # a deeper quote starts a new paragraph, so the text before it is no context
                 or depth > prev_depth):
             flush()
@@ -3119,6 +3122,14 @@ def selftest():
     # a blockquote prefix is not a word in a wrapped quoted sentence
     findings, _ = lint("> " + "\n> ".join(["word word word word word"] * 5) + ".")
     assert not any(f["rule"] == "long-sentence" for f in findings), findings
+    # a lazy continuation line, with no ">" , stays in the quoted sentence
+    lazy_quote = ("The agent reads each line of the log file from the local disk "
+                  "into a buffer and writes the words to the output in one order.")
+    for text in ("> " + lazy_quote.replace(" disk ", " disk\n"),
+                 "> " + lazy_quote.replace(" disk ", " disk\n> ")):
+        findings, _ = lint(text)
+        long_sentences = [f for f in findings if f["rule"] == "long-sentence"]
+        assert [f["match"] for f in long_sentences] == ["26 words"], (text, findings)
     # a list marker is not a word either, in every marker style
     twenty_five = " ".join(f"term{number}" for number in range(1, 26)) + "."
     for marker in ("-", "*", "+", "1.", "1)", "  -", "> -"):
