@@ -1027,6 +1027,26 @@ def _fence_ends_with_quote(fence, line):
     return fence is not None and _strip_quotes(line.expandtabs(4), fence[1])[0] < fence[1]
 
 
+# A list marker, then a fence, at the start of a line. At most three spaces of
+# indent, also after a blockquote prefix. A space or a tab follows the marker.
+MARKER_THEN_FENCE = re.compile(
+    r"^((?: {0,3}> ?)*)( {0,3})([-*+]|[0-9]{1,9}[.)])([ \t]+)(`{3,}|~{3,})"
+)
+
+
+def _line_for_opening_fence(line):
+    """Return LINE with one list marker blanked when a fence follows it.
+
+    The marker keeps its width, so the fence indent does not move. A line
+    that is not this shape is returned unchanged. The dangling-conjunction
+    pass does not use this: it already tracks a fence on a marker line.
+    """
+    match = MARKER_THEN_FENCE.match(line)
+    if not match:
+        return line
+    return line[:match.start(3)] + (" " * len(match.group(3))) + line[match.end(3):]
+
+
 def _fence_step(fence, line):
     """Return (is_fence_line, open_fence) after LINE.
 
@@ -1929,7 +1949,10 @@ def lint(text, filename="<stdin>"):
             # An HTML block holds literal text until it ends, so no fence opens in it.
             is_fence = False
         else:
-            is_fence, fence = _fence_step(fence, raw_line)
+            # A fence may open on the line of a list marker. Blank that marker
+            # for this call only, so the rest of the line is still a list item.
+            fence_line = _line_for_opening_fence(raw_line) if fence is None else raw_line
+            is_fence, fence = _fence_step(fence, fence_line)
         after_blank = not unquoted.strip()  # the line before is blank or a quote marker only
         # A paragraph is open after a line of text that no other block takes.
         # The paragraph state reads the line after its quote prefix, so a line with only
@@ -2409,6 +2432,14 @@ def selftest():
     findings, _ = lint("- Item\n  > ```\n  > code\nProse and")
     assert findings == [], findings
     # a tab is indent up to the next tab stop of 4, from its real column, also after ">"
+    # a fence on the line of a list marker is code, so the prose after it is read
+    for text, line in (("- ```python\n  a; b\n  ```\n\nProse; here.", 5),
+                       ("1. ~~~\n  a; b\n  ~~~\n\nProse; here.", 5),
+                       ("> - ```python\n>   a; b\n>   ```\n\n> Prose; here.", 5)):
+        findings, _ = lint(text)
+        assert [(f["rule"], f["line"]) for f in findings] == [("semicolon", line)], (text, findings)
+    findings, _ = lint("- see ```this; code\n")
+    assert [f["rule"] for f in findings] == ["semicolon"], findings
     for text, line in (("\t```\n\tx = 1\n\t```\n\nProse; here.", 5),
                        ("```\nx\n\t```\ny; z\n```\n\nProse; here.", 7),
                        ("> ```\n> x\n>\t```\n> Use a; b.", 4),
