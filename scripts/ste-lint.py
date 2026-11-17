@@ -3123,6 +3123,20 @@ def selftest():
             assert main([paths[0], "--json", "--disable", "semicolon",
                          "--disable", "long-sentence"]) == 0
         assert json.loads(out.getvalue())["count"] == 0, out.getvalue()
+        # a file that is not valid UTF-8 is unreadable: exit 2, no traceback
+        bad_path = os.path.join(tmp, "bad.md")
+        with open(bad_path, "wb") as fh:
+            fh.write(b"Text \xff here.\n")
+        err = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(err):
+                main([bad_path])
+        except SystemExit as e:
+            assert e.code == 2, e.code
+        else:
+            raise AssertionError("invalid utf-8")
+        message = err.getvalue()
+        assert "bad.md" in message and "Traceback" not in message, message
     # command-line parsing rejects typos and bad values
     for bad in (["--basline", "3"], ["--baseline"], ["--baseline", "x"],
                 ["--baseline", "-1"], ["--disable", "passive"], ["--base", "3"]):
@@ -3203,6 +3217,9 @@ def main(argv):
                     text = fh.read()
             except OSError as e:
                 parser.error(f"cannot read {p}: {e.strerror}")
+            except UnicodeDecodeError as e:
+                # A file that is not valid UTF-8 is unreadable.
+                parser.error(f"cannot read {p}: {e}")
             f, w = lint(text, filename=p)
             findings.extend(f)
             words_total += w
