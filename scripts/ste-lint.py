@@ -243,17 +243,39 @@ def _breaks_paragraph(depth, line, list_indent):
                     or _list_item(rest, list_indent, line_depth == depth)))
 
 
-def _paragraph_runs(lines, start, depth, list_indent):
+def _run_in_autolink(line, run):
+    """True when RUN sits inside an autolink on LINE.
+
+    GitHub does not treat that backtick as a code span.
+    """
+    for pattern in (AUTOLINK, EMAIL_AUTOLINK):
+        for match in pattern.finditer(line):
+            if match.start() <= run.start() and run.end() <= match.end():
+                return True
+    return False
+
+
+def _paragraph_runs(lines, start, depth, list_indent, table_lines=()):
     """Return (end, last) for the paragraph that continues at LINES[START].
 
     END is the index of the line that ends it. LAST maps each backtick run length
     to the index of its last line before END. One scan serves every run in the
-    paragraph, so the cost stays linear in the line count.
+    paragraph, so the cost stays linear in the line count. An escaped backtick,
+    a backtick in an autolink, and a backtick on a table row are text: none of
+    them closes a code span. TABLE_LINES holds the indexes of those rows.
     """
     last, end = {}, start
     while end < len(lines) and not _breaks_paragraph(depth, lines[end], list_indent):
-        for run in BACKTICK_RUN.finditer(lines[end]):
-            last[len(run.group())] = end
+        line = lines[end]
+        if end not in table_lines:
+            for run in BACKTICK_RUN.finditer(line):
+                if _run_in_autolink(line, run):
+                    continue
+                length = len(run.group())
+                if _escaped(line, run.start()):
+                    length -= 1
+                if length:
+                    last[length] = end
         end += 1
     return end, last
 
@@ -1917,7 +1939,8 @@ def lint(text, filename="<stdin>"):
         if not in_paragraph:
             return False
         if lineno > span_end:
-            span_end, span_runs = _paragraph_runs(lines, lineno, paragraph_depth, list_indent)
+            span_end, span_runs = _paragraph_runs(
+                lines, lineno, paragraph_depth, list_indent, table_cells)
         return span_runs.get(run, -1) >= lineno
 
     for lineno, raw_line in enumerate(lines, 1):
@@ -2453,6 +2476,15 @@ def selftest():
     assert [(f["rule"], f["line"]) for f in findings] == [("semicolon", 6)], findings
     findings, _ = lint("- Item\n\n  > quote\n\n    More; text.\n")
     assert [(f["rule"], f["line"]) for f in findings] == [("semicolon", 5)], findings
+    # a backtick in an autolink, on a table row, or escaped does not close a span
+    for text in ("A ` mark; here.\nSee <https://x.io/`a>.\n",
+                 "Press the ` key; it opens.\n| a | b ` c |\n|---|---|\n",
+                 "Type \\` to quote; it opens.\nThen run `x` now.\n"):
+        findings, _ = lint(text)
+        assert [(f["rule"], f["line"]) for f in findings] == [("semicolon", 1)], (text, findings)
+    # a real span still hides the semicolon on the next line
+    findings, _ = lint("See `the\ncode; here`\n")
+    assert not any(f["rule"] == "semicolon" for f in findings), findings
     # a fence on the line of a list marker is code, so the prose after it is read
     for text, line in (("- ```python\n  a; b\n  ```\n\nProse; here.", 5),
                        ("1. ~~~\n  a; b\n  ~~~\n\nProse; here.", 5),
