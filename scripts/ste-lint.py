@@ -87,6 +87,11 @@ MAX_WORDS = 25  # descriptions cap; instructions cap is 20 but undetectable with
 
 CODE_FENCE = re.compile(r"^(`{3,}|~{3,})")
 INLINE_CODE = re.compile(r"`[^`]*`")
+# A bare file name is code, not a verb: "verify-geometry.py" names no action.
+# The lookbehind starts a match only at the start of a token.
+FILE_NAME = re.compile(
+    r"(?<![\w./\\:-])[\w./\\:-]*[\w-]\.(?:py|md|ps1|sh|json|ya?ml|txt|html?|js|css|R|qmd|docx|pptx|xlsx|pdf|png|svg|csv)\b"
+)
 BACKTICK_RUN = re.compile(r"`+")
 # A list item start at any indent, to find the content indent of its item.
 LIST_ITEM_INDENT = re.compile(r"^( *)([-*+]|[0-9]{1,9}[.)])( +|$)")
@@ -1840,11 +1845,13 @@ def lint(text, filename="<stdin>"):
                                  "col": source_column + m.start() + 1,
                                  "rule": rule_id, "level": level,
                                  "match": m.group(0), "message": msg})
+        # Blank file names with spaces of the same length, so columns stay true.
+        named = FILE_NAME.sub(lambda found: " " * len(found.group(0)), line)
         for gi, group in enumerate(SYNONYM_GROUPS):
             for base in group:
                 if (gi, base) in seen_synonyms:
                     continue
-                m = _word_re(base).search(line)
+                m = _word_re(base).search(named)
                 if m:
                     seen_synonyms[(gi, base)] = (
                         lineno, source_column + m.start() + 1, m.group(0)
@@ -2584,6 +2591,12 @@ def selftest():
     # single consistent term: no flag
     findings, _ = lint("Check the config. Check the output.")
     assert not any(f["rule"] == "synonym-rotation" for f in findings)
+    # a bare file name is not a verb
+    findings, _ = lint(
+        "Check the figure before you export it. Then run verify-geometry.py on the exported file.")
+    assert not any(f["rule"] == "synonym-rotation" for f in findings), findings
+    findings, _ = lint("Check the figure. Then verify the exported file.")
+    assert any(f["rule"] == "synonym-rotation" for f in findings), findings
     # character references and link targets are markup, not prose
     findings, _ = lint("Press Ctrl&nbsp;C to stop &rarr; &#8594; &#x2192; now. "
                        "See [the docs](https://x.io/a;b) or <https://x.io/a;b>.")
