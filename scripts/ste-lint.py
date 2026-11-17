@@ -1817,6 +1817,8 @@ def lint(text, filename="<stdin>"):
     in_paragraph = False
     # content indent of the open list item, so its indented lines are not code
     list_indent = 0
+    # content indents of the items that contain the open item
+    list_stack = []
     # backtick run length of a code span that is open across lines, or 0
     open_span = 0
     paragraph_depth = 0
@@ -1999,14 +2001,25 @@ def lint(text, filename="<stdin>"):
                 # in a tight list. A lazy line does not end the item.
                 item = _list_item(rest, list_indent, was_paragraph and depth == prev_depth)
                 if item:
-                    list_indent = len(item.group(0)) if item.group(3) else len(item.group(0)) + 1
+                    new_indent = len(item.group(0)) if item.group(3) else len(item.group(0)) + 1
+                    if list_indent and new_indent > list_indent:
+                        list_stack.append(list_indent)
+                    else:
+                        while list_stack and list_stack[-1] >= new_indent:
+                            list_stack.pop()
+                    list_indent = new_indent
                     list_depth = depth
                 elif indent < list_indent and not (was_paragraph and in_paragraph):
-                    # only a lazy text line keeps the item open, not a heading or a break
-                    list_indent = 0
-                    # An indented line can be in an outer item, and a ">" with an indent
-                    # can start a block quote in the item: GitHub reads the list on.
-                    unsure_list = lead > 0
+                    # A line back at a parent item's indent returns to that item.
+                    # A quote in the item has no indent after its ">", but LEAD
+                    # is the indent before that quote, so the item stays open.
+                    # Only a lazy text line keeps the item open without this pop.
+                    while list_indent and indent < list_indent and list_stack:
+                        list_indent = list_stack.pop()
+                    if indent < list_indent and lead < list_indent:
+                        list_indent = 0
+                        list_stack.clear()
+                        unsure_list = lead > 0
         item_text = rest[ITEM_PREFIX.match(rest).end():]
         if (list_indent and indent < list_indent + 4
                 and (depth > list_depth or item_text.startswith(">") or NO_PARAGRAPH.match(item_text)
@@ -2435,6 +2448,11 @@ def selftest():
     findings, _ = lint("- Item\n  > ```\n  > code\nProse and")
     assert findings == [], findings
     # a tab is indent up to the next tab stop of 4, from its real column, also after ">"
+    # a paragraph back at the parent item, or after a quote in the item, is prose
+    findings, _ = lint("- Step one\n    - detail\n\n    Back in step one.\n\n    Another; paragraph.\n")
+    assert [(f["rule"], f["line"]) for f in findings] == [("semicolon", 6)], findings
+    findings, _ = lint("- Item\n\n  > quote\n\n    More; text.\n")
+    assert [(f["rule"], f["line"]) for f in findings] == [("semicolon", 5)], findings
     # a fence on the line of a list marker is code, so the prose after it is read
     for text, line in (("- ```python\n  a; b\n  ```\n\nProse; here.", 5),
                        ("1. ~~~\n  a; b\n  ~~~\n\nProse; here.", 5),
