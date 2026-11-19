@@ -984,6 +984,43 @@ def _long_sentence_findings(pieces, filename, emphasis=None):
     return findings
 
 
+def _wrapped_findings(prose, filename):
+    """Return the RULES findings that a line break splits: "spin" at the end of a line, "up" on the next.
+
+    PROSE is one block as lint() collects it. check() reads each line on its own,
+    so it finds a match that stays on one line. This joins the lines of each
+    paragraph in the block with one space and keeps the matches that start and
+    end on different lines.
+    """
+    findings = []
+    start = 0
+    while start < len(prose):
+        end = start + 1
+        while end < len(prose) and prose[end][4] == prose[start][4]:
+            end += 1
+        run, start = prose[start:end], end
+        joined, offsets, columns = "", [], []
+        for lineno, column, text, *_ in run:
+            stripped = text.strip()
+            if joined:
+                joined += " "
+            offsets.append(len(joined))
+            columns.append(column + len(text) - len(text.lstrip()))
+            joined += stripped
+        for rule_id, level, pattern, msg in RULES:
+            for m in pattern.finditer(joined):
+                first = bisect.bisect_right(offsets, m.start()) - 1
+                if first == bisect.bisect_right(offsets, m.end() - 1) - 1:
+                    continue
+                if rule_id == "present-perfect" and MODAL_PERFECT_PREFIX.search(joined[:m.start()]):
+                    continue
+                findings.append({"file": filename, "line": run[first][0],
+                                 "col": columns[first] + m.start() - offsets[first] + 1,
+                                 "rule": rule_id, "level": level,
+                                 "match": m.group(0), "message": msg})
+    return findings
+
+
 def _block_emphasis(blocks):
     """Return, for each block in BLOCKS, the end offsets of the runs that emphasis uses.
 
@@ -2147,6 +2184,7 @@ def lint(text, filename="<stdin>"):
     flush()
     for prose, emphasis in zip(blocks, _block_emphasis(blocks)):
         findings.extend(_long_sentence_findings(prose, filename, emphasis))
+        findings.extend(_wrapped_findings(prose, filename))
     # synonym rotation: flag each member after the first, at its first occurrence
     for gi, group in enumerate(SYNONYM_GROUPS):
         present = [(seen_synonyms[(gi, b)], b) for b in group if (gi, b) in seen_synonyms]
@@ -2265,6 +2303,22 @@ def selftest():
         findings, _ = lint(text)
         perfect_lines = [f["line"] for f in findings if f["rule"] == "present-perfect"]
         assert perfect_lines == [text.count("\n") + 1], (text, findings)
+    # a phrase that a line break splits is found once, where it starts, also in a
+    # quote and in a list item; a blank line, a list item or a code span ends it
+    for text, found in (("Next we spin\nup the server.", [("phrasal-verb", 1, 9)]),
+                        ("We perform an\ninstallation of it.", [("nominalization", 1, 4)]),
+                        ("The job has\nrun twice.", [("present-perfect", 1, 9)]),
+                        ("The file was\ndeleted by the job.", [("passive-voice", 1, 10)]),
+                        ("> We spin\n> up the server.", [("phrasal-verb", 1, 6)]),
+                        ("- We spin\n  up the server.", [("phrasal-verb", 1, 6)]),
+                        ("We spin up\nthe server.", [("phrasal-verb", 1, 4)]),
+                        ("The job may have\nrun twice.", []),
+                        ("We spin\n\nup the server.", []),
+                        ("We spin\n- up the server.", []),
+                        ("Run `spin`\nup the server.", []),
+                        ("| We spin |\n| up |", [])):
+        findings, _ = lint(text)
+        assert [(f["rule"], f["line"], f["col"]) for f in findings] == found, (text, findings)
     # an adverb without a modal is not a hedge
     findings, _ = lint("The task already has run. They probably have finished.")
     assert sum(f["rule"] == "present-perfect" for f in findings) == 2, findings
