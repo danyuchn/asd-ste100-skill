@@ -714,6 +714,13 @@ def _gfm_autolinks(source, masked, start, depth, hidden):
     return depth
 
 
+def _fill(text, ranges):
+    """Return TEXT with each (start, end) in RANGES filled with underscores, at the same length."""
+    for start, end in ranges:
+        text = text[:start] + "_" * (end - start) + text[end:]
+    return text
+
+
 def _gfm_extended_autolink(text, pos, start):
     """Return (start, end) of the GFM extended autolink at the "w" or ":" at TEXT[POS], or None.
 
@@ -1929,7 +1936,10 @@ def lint(text, filename="<stdin>"):
         elif piece_end and piece_end[0] <= position:
             piece_end = None
         line = _mask_non_prose(masked, hidden)
+        known = len(hidden)
         piece_depth = _gfm_autolinks(value, line, 0, piece_depth, hidden)
+        # A link is no prose: its ";" and its words are not checked.
+        line = _fill(line, hidden[known:])
         check(index + 1, value, column, line, 0, False, hidden=hidden,
               wraps=_html_item_wraps(value, line, hidden, 0))
     flush()
@@ -2115,10 +2125,13 @@ def lint(text, filename="<stdin>"):
             marker = None if is_table else ANY_LIST_ITEM.match(segment[skip:])
             if marker:
                 skip += marker.end()
+            known = len(hidden)
             if in_html or is_table:
                 _gfm_autolinks(segment, line, skip, 0, hidden)
             else:
                 link_depth = _gfm_autolinks(segment, line, skip, link_depth, hidden)
+            # A link is no prose: its ";" and its words are not checked.
+            line = _fill(line, hidden[known:])
             check(
                 lineno, segment, source_column, line, skip, is_table,
                 add_to_block=not admonition_title, hidden=hidden,
@@ -2687,6 +2700,15 @@ def selftest():
     assert not any(f["rule"] == "semicolon" for f in findings), findings
     findings, _ = lint('See [a](https://x.io/a;b "Title") and [b](<a b;c>) and [c](a(b;c)).')
     assert not any(f["rule"] == "semicolon" for f in findings), findings
+    # a bare URL is a link on GitHub: its ";" and its words are no prose, and a
+    # ";" after it is prose, because GitHub leaves it out of the link
+    for text, rules in (("See https://x.io/a;b for it.", []),
+                        ("See www.x.io/a;b for it.", []),
+                        ("See https://x.io/robust-tool now.", []),
+                        ("See https://x.io/a; then go.", [("semicolon", 19)]),
+                        ("---\ndescription: See https://x.io/a;b now.\n---\nText.", [])):
+        findings, _ = lint(text)
+        assert [(f["rule"], f["col"]) for f in findings] == rules, (text, findings)
     # a reference GitHub does not read as one, or that renders ";", is prose
     for text in ("We closed the Q&As; then we left.", "Use &unknownentity; here.",
                  "Read this&#59; then stop.", "Read this&#x3b; then stop.", "Read&semi; this."):
@@ -2704,7 +2726,7 @@ def selftest():
                        ("See [a](b;c\n\"title\") now.", []),
                        ("See [a](b;c (paren\ntitle)) now.", []),
                        ("> See [docs](https://x.io/a;b\n> ).", []),
-                       ("See [docs](https://x.io/a;b\n\n).", [(1, 26)]),
+                       ("See [docs](a;b\n\n).", [(1, 13)]),
                        ("See [a](b;c\n\n\"title\") now.", [(1, 10)]),
                        ("See [a](b;c\nnext line) now.", [(1, 10)]),
                        ("See [a](b(c);d \"oops).", [(1, 13)]),
