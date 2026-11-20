@@ -714,6 +714,13 @@ def _gfm_autolinks(source, masked, start, depth, hidden):
     return depth
 
 
+def _fill(text, ranges):
+    """Return TEXT with each (start, end) in RANGES filled with underscores, at the same length."""
+    for start, end in ranges:
+        text = text[:start] + "_" * (end - start) + text[end:]
+    return text
+
+
 def _gfm_extended_autolink(text, pos, start):
     """Return (start, end) of the GFM extended autolink at the "w" or ":" at TEXT[POS], or None.
 
@@ -974,6 +981,43 @@ def _long_sentence_findings(pieces, filename, emphasis=None):
                          "rule": "long-sentence", "level": "advisory-free",
                          "match": f"{n} words",
                          "message": f"Sentence has {n} words (cap {MAX_WORDS}). Split it."})
+    return findings
+
+
+def _wrapped_findings(prose, filename):
+    """Return the RULES findings that a line break splits: "spin" at the end of a line, "up" on the next.
+
+    PROSE is one block as lint() collects it. check() reads each line on its own,
+    so it finds a match that stays on one line. This joins the lines of each
+    paragraph in the block with one space and keeps the matches that start and
+    end on different lines.
+    """
+    findings = []
+    start = 0
+    while start < len(prose):
+        end = start + 1
+        while end < len(prose) and prose[end][4] == prose[start][4]:
+            end += 1
+        run, start = prose[start:end], end
+        joined, offsets, columns = "", [], []
+        for lineno, column, text, *_ in run:
+            stripped = text.strip()
+            if joined:
+                joined += " "
+            offsets.append(len(joined))
+            columns.append(column + len(text) - len(text.lstrip()))
+            joined += stripped
+        for rule_id, level, pattern, msg in RULES:
+            for m in pattern.finditer(joined):
+                first = bisect.bisect_right(offsets, m.start()) - 1
+                if first == bisect.bisect_right(offsets, m.end() - 1) - 1:
+                    continue
+                if rule_id == "present-perfect" and MODAL_PERFECT_PREFIX.search(joined[:m.start()]):
+                    continue
+                findings.append({"file": filename, "line": run[first][0],
+                                 "col": columns[first] + m.start() - offsets[first] + 1,
+                                 "rule": rule_id, "level": level,
+                                 "match": m.group(0), "message": msg})
     return findings
 
 
@@ -1929,7 +1973,10 @@ def lint(text, filename="<stdin>"):
         elif piece_end and piece_end[0] <= position:
             piece_end = None
         line = _mask_non_prose(masked, hidden)
+        known = len(hidden)
         piece_depth = _gfm_autolinks(value, line, 0, piece_depth, hidden)
+        # A link is no prose: its ";" and its words are not checked.
+        line = _fill(line, hidden[known:])
         check(index + 1, value, column, line, 0, False, hidden=hidden,
               wraps=_html_item_wraps(value, line, hidden, 0))
     flush()
@@ -2115,10 +2162,13 @@ def lint(text, filename="<stdin>"):
             marker = None if is_table else ANY_LIST_ITEM.match(segment[skip:])
             if marker:
                 skip += marker.end()
+            known = len(hidden)
             if in_html or is_table:
                 _gfm_autolinks(segment, line, skip, 0, hidden)
             else:
                 link_depth = _gfm_autolinks(segment, line, skip, link_depth, hidden)
+            # A link is no prose: its ";" and its words are not checked.
+            line = _fill(line, hidden[known:])
             check(
                 lineno, segment, source_column, line, skip, is_table,
                 add_to_block=not admonition_title, hidden=hidden,
@@ -2134,6 +2184,7 @@ def lint(text, filename="<stdin>"):
     flush()
     for prose, emphasis in zip(blocks, _block_emphasis(blocks)):
         findings.extend(_long_sentence_findings(prose, filename, emphasis))
+        findings.extend(_wrapped_findings(prose, filename))
     # synonym rotation: flag each member after the first, at its first occurrence
     for gi, group in enumerate(SYNONYM_GROUPS):
         present = [(seen_synonyms[(gi, b)], b) for b in group if (gi, b) in seen_synonyms]
@@ -2252,6 +2303,22 @@ def selftest():
         findings, _ = lint(text)
         perfect_lines = [f["line"] for f in findings if f["rule"] == "present-perfect"]
         assert perfect_lines == [text.count("\n") + 1], (text, findings)
+    # a phrase that a line break splits is found once, where it starts, also in a
+    # quote and in a list item; a blank line, a list item or a code span ends it
+    for text, found in (("Next we spin\nup the server.", [("phrasal-verb", 1, 9)]),
+                        ("We perform an\ninstallation of it.", [("nominalization", 1, 4)]),
+                        ("The job has\nrun twice.", [("present-perfect", 1, 9)]),
+                        ("The file was\ndeleted by the job.", [("passive-voice", 1, 10)]),
+                        ("> We spin\n> up the server.", [("phrasal-verb", 1, 6)]),
+                        ("- We spin\n  up the server.", [("phrasal-verb", 1, 6)]),
+                        ("We spin up\nthe server.", [("phrasal-verb", 1, 4)]),
+                        ("The job may have\nrun twice.", []),
+                        ("We spin\n\nup the server.", []),
+                        ("We spin\n- up the server.", []),
+                        ("Run `spin`\nup the server.", []),
+                        ("| We spin |\n| up |", [])):
+        findings, _ = lint(text)
+        assert [(f["rule"], f["line"], f["col"]) for f in findings] == found, (text, findings)
     # an adverb without a modal is not a hedge
     findings, _ = lint("The task already has run. They probably have finished.")
     assert sum(f["rule"] == "present-perfect" for f in findings) == 2, findings
@@ -2687,6 +2754,15 @@ def selftest():
     assert not any(f["rule"] == "semicolon" for f in findings), findings
     findings, _ = lint('See [a](https://x.io/a;b "Title") and [b](<a b;c>) and [c](a(b;c)).')
     assert not any(f["rule"] == "semicolon" for f in findings), findings
+    # a bare URL is a link on GitHub: its ";" and its words are no prose, and a
+    # ";" after it is prose, because GitHub leaves it out of the link
+    for text, rules in (("See https://x.io/a;b for it.", []),
+                        ("See www.x.io/a;b for it.", []),
+                        ("See https://x.io/robust-tool now.", []),
+                        ("See https://x.io/a; then go.", [("semicolon", 19)]),
+                        ("---\ndescription: See https://x.io/a;b now.\n---\nText.", [])):
+        findings, _ = lint(text)
+        assert [(f["rule"], f["col"]) for f in findings] == rules, (text, findings)
     # a reference GitHub does not read as one, or that renders ";", is prose
     for text in ("We closed the Q&As; then we left.", "Use &unknownentity; here.",
                  "Read this&#59; then stop.", "Read this&#x3b; then stop.", "Read&semi; this."):
@@ -2704,7 +2780,7 @@ def selftest():
                        ("See [a](b;c\n\"title\") now.", []),
                        ("See [a](b;c (paren\ntitle)) now.", []),
                        ("> See [docs](https://x.io/a;b\n> ).", []),
-                       ("See [docs](https://x.io/a;b\n\n).", [(1, 26)]),
+                       ("See [docs](a;b\n\n).", [(1, 13)]),
                        ("See [a](b;c\n\n\"title\") now.", [(1, 10)]),
                        ("See [a](b;c\nnext line) now.", [(1, 10)]),
                        ("See [a](b(c);d \"oops).", [(1, 13)]),
